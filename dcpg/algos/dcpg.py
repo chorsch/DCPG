@@ -9,14 +9,17 @@ from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 
 
 class Buffer:
-    def __init__(self, buffer_size, device):
+    def __init__(self, buffer_size, device, store_unnormalised_obs=True):
         self.segs = deque(maxlen=buffer_size)
+        self.store_unnormalised_obs = store_unnormalised_obs
         self.device = device
 
     def __len__(self):
         return len(self.segs)
 
     def insert(self, seg):
+        if self.store_unnormalised_obs:
+            seg['obs'] = (seg['obs']*255).to(torch.uint8)
         self.segs.append(seg)
 
     def feed_forward_generator(self, num_mini_batch=None, mini_batch_size=None):
@@ -48,6 +51,9 @@ class Buffer:
 
             obs_batch = obs[:-1].view(-1, *obs.size()[2:])
             returns_batch = returns[:-1].view(-1, 1)
+
+            if self.store_unnormalised_obs:
+                obs_batch = obs_batch.to(torch.float32) / 255.
 
             yield obs_batch, returns_batch
 
