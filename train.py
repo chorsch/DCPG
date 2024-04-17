@@ -15,6 +15,7 @@ from dcpg.envs import make_envs
 from dcpg.models import *
 from dcpg.sample_utils import sample_episodes
 from dcpg.storages import RolloutStorage
+from dcpg.rnd import RandomNetworkDistillation
 from test import evaluate
 
 DEBUG = False
@@ -85,6 +86,26 @@ def main(config):
     agent_params = config["agent_params"]
     agent = agent_class(actor_critic, **agent_params, device=device)
 
+    # Create Random Network Distillation
+    config['rnd_embed_dim'] = 512
+    config['rnd_kwargs'] = dict(activation_fn = torch.nn.ReLU, net_arch=[2048, 2048, 1024], learning_rate=0.0001)
+    config['rnd_flatten_input'] = True
+    config['rnd_use_cnn'] = False
+    config['rnd_normalize_images'] = False
+    config['rnd_normalize_output'] = True
+
+    rnd = RandomNetworkDistillation(
+        envs.action_space,
+        envs.observation_space,
+        config['rnd_embed_dim'],
+        config['rnd_kwargs'],
+        device="cuda",
+        flatten_input=config['rnd_flatten_input'],
+        use_cnn=config['rnd_use_cnn'],
+        normalize_images=config['rnd_normalize_images'],
+        normalize_output=config['rnd_normalize_output'],
+        )
+
     # Initialize environments
     obs = envs.reset()
     *_, infos = envs.step_wait()
@@ -105,7 +126,11 @@ def main(config):
         actor_critic.train()
 
         # Sample episode
-        sample_episodes(envs, rollouts, actor_critic)
+        normalise = False
+        if j < 10:
+            # normalise RND on the data of the first 10 rollouts
+            normalise = True
+        sample_episodes(envs, rollouts, actor_critic, rnd, config['use_rnd'], config['beta'], normalise)
 
         # Compute return
         with torch.no_grad():

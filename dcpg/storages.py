@@ -33,6 +33,13 @@ class RolloutStorage(object):
         self.num_steps = num_steps
         self.step = 0
 
+    def update_rewards(self, rnd, beta, normalise):
+        with torch.no_grad():
+            intrinsic_rewards = rnd(self.obs[:-1].view(-1, *self.obs.size()[2:]), self.actions.view(-1, self.actions.size(-1)), update_rms=normalise)
+        intrinsic_rewards = intrinsic_rewards.reshape(self.rewards.shape[0], self.rewards.shape[1], -1)
+
+        self.rewards = self.rewards + beta * intrinsic_rewards
+
     def __getitem__(self, key: str):
         return getattr(self, key)
 
