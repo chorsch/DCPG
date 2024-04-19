@@ -1,11 +1,13 @@
 from collections import deque
 import copy
 
+import numpy as np
+
 import torch
 from torch.distributions import kl_divergence
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
+from torch.utils.data.sampler import BatchSampler, WeightedRandomSampler
 
 
 class Buffer:
@@ -13,44 +15,58 @@ class Buffer:
         self.segs = deque(maxlen=buffer_size)
         self.store_unnormalised_obs = store_unnormalised_obs
         self.device = device
+        self.indices_to_sample = deque(maxlen=buffer_size)
 
     def __len__(self):
         return len(self.segs)
 
-    def insert(self, seg):
+    def insert(self, seg, step):
         if self.store_unnormalised_obs:
             seg['obs'] = (seg['obs']*255).to(torch.uint8)
         self.segs.append(seg)
+        index_array = np.repeat(np.expand_dims(np.arange(seg['obs'].shape[0]-1), axis=0), seg['obs'].shape[1], axis=0)
+        mask = index_array < step.cpu().numpy()[:, np.newaxis]
+        self.indices_to_sample.append(mask)
 
     def feed_forward_generator(self, num_mini_batch=None, mini_batch_size=None):
         num_processes = self.segs[0]["obs"].size(1)
+        num_steps = self.segs[0]["obs"].size(0) - 1
+        obs_shape = self.segs[0]["obs"].shape[2:]
         num_segs = len(self.segs)
-        batch_size = num_processes * num_segs
 
         if mini_batch_size is None:
-            mini_batch_size = num_processes // num_mini_batch
+            mini_batch_size = num_steps * (num_processes // num_mini_batch)
 
+        indices_to_sample = np.array(self.indices_to_sample, dtype=np.uint8).flatten()
         sampler = BatchSampler(
-            SubsetRandomSampler(range(batch_size)), mini_batch_size, drop_last=True
+            WeightedRandomSampler(indices_to_sample, mini_batch_size, replacement=False), 
+            mini_batch_size, 
+            drop_last=True
         )
 
+        all_obs = torch.concat([seg['obs'][:-1] for seg in self.segs], dim=0).view(-1, *obs_shape)
+        all_returns = torch.concat([seg['returns'][:-1] for seg in self.segs], dim=0).view(-1, 1)
+
         for indices in sampler:
-            obs = []
-            returns = []
+            obs_batch = all_obs[indices].to(self.device)
+            returns_batch = all_returns[indices].to(self.device)
 
-            for idx in indices:
-                process_idx = idx // num_segs
-                seg_idx = idx % num_segs
+            # obs = []
+            # returns = []
 
-                seg = self.segs[seg_idx]
-                obs.append(seg["obs"][:, process_idx])
-                returns.append(seg["returns"][:, process_idx])
+            # for idx in indices:
+            #     process_idx = idx // num_segs
+            #     seg_idx = idx % num_segs
 
-            obs = torch.stack(obs, dim=1).to(self.device)
-            returns = torch.stack(returns, dim=1).to(self.device)
+            #     seg = self.segs[seg_idx]
+            #     obs.append(seg["obs"][:, process_idx])
+            #     returns.append(seg["returns"][:, process_idx])
 
-            obs_batch = obs[:-1].view(-1, *obs.size()[2:])
-            returns_batch = returns[:-1].view(-1, 1)
+            # obs = torch.stack(obs, dim=1).to(self.device)
+            # returns = torch.stack(returns, dim=1).to(self.device)
+
+            # obs_batch = obs[:-1].view(-1, *obs.size()[2:])
+            # returns_batch = returns[:-1].view(-1, 1)
 
             if self.store_unnormalised_obs:
                 obs_batch = obs_batch.to(torch.float32) / 255.
@@ -117,7 +133,7 @@ class DCPG:
     def update(self, rollouts):
         # Add obs and returns to buffer
         seg = {key: rollouts[key].cpu() for key in ["obs", "returns"]}
-        self.buffer.insert(seg)
+        self.buffer.insert(seg, rollouts.step)
 
         # PPO phase
         action_loss_epoch = 0

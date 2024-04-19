@@ -1,7 +1,11 @@
 # Directory
-log_dir: logs
-output_dir: outputs
-save_dir: models
+log_dir: /logs
+output_dir: /outputs
+save_dir: /models
+
+# Weights & Biases
+project_name: "phasic-exploration--dcpg"
+model_name: "DCPG - phasic"
 
 # Experiment
 log_interval: 10
@@ -17,6 +21,8 @@ normalize_reward: True
 # Rollout
 num_processes: 64
 num_steps: 256
+# num_processes: 5
+# num_steps: 10
 
 # Policy gradient
 gamma: 0.999
@@ -26,6 +32,9 @@ gae_lambda: 0.95
 actor_critic_class: PPOModel
 actor_critic_params:
   shared: True
+
+# Pure Exploration
+num_pure_expl_steps: 50
 
 # Agent
 agent_class: DCPG
