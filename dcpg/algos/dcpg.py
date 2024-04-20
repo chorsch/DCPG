@@ -37,9 +37,9 @@ class Buffer:
         if mini_batch_size is None:
             mini_batch_size = num_steps * (num_processes // num_mini_batch)
 
-        indices_to_sample = np.array(self.indices_to_sample, dtype=np.uint8).flatten()
+        indices_to_sample = np.array(self.indices_to_sample, dtype=np.uint8).transpose((0,2,1)).flatten()
         sampler = BatchSampler(
-            WeightedRandomSampler(indices_to_sample, mini_batch_size, replacement=False), 
+            WeightedRandomSampler(indices_to_sample, int(sum(indices_to_sample)), replacement=False), 
             mini_batch_size, 
             drop_last=True
         )
