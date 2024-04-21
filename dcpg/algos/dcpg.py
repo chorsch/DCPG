@@ -38,11 +38,15 @@ class Buffer:
             mini_batch_size = num_steps * (num_processes // num_mini_batch)
 
         indices_to_sample = np.array(self.indices_to_sample, dtype=np.uint8).transpose((0,2,1)).flatten()
-        sampler = BatchSampler(
-            WeightedRandomSampler(indices_to_sample, int(sum(indices_to_sample)), replacement=False), 
-            mini_batch_size, 
-            drop_last=True
-        )
+        if int(sum(indices_to_sample)) == 0:
+            # nothing was added to the rollout so just yield nothing
+            yield from ()
+        else:
+            sampler = BatchSampler(
+                WeightedRandomSampler(indices_to_sample, int(sum(indices_to_sample)), replacement=False), 
+                mini_batch_size, 
+                drop_last=True
+            )
 
         all_obs = torch.concat([seg['obs'][:-1] for seg in self.segs], dim=0).view(-1, *obs_shape)
         all_returns = torch.concat([seg['returns'][:-1] for seg in self.segs], dim=0).view(-1, 1)
