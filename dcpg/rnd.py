@@ -92,6 +92,8 @@ class RandomNetworkDistillation:
             self.target_cnn.append(th.nn.ReLU())
             self.target_cnn.append(th.nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1, padding_mode='circular'))
             self.target_cnn.append(th.nn.ReLU())
+            self.target_cnn.append(th.nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1, padding_mode='circular'))
+            self.target_cnn.append(th.nn.ReLU())
             self.target_cnn = th.nn.Sequential(*self.target_cnn).to(th.device(device))
 
             self.predict_cnn = []
