@@ -48,34 +48,17 @@ class Buffer:
                 drop_last=True
             )
 
-        all_obs = torch.concat([seg['obs'][:-1] for seg in self.segs], dim=0).view(-1, *obs_shape)
-        all_returns = torch.concat([seg['returns'][:-1] for seg in self.segs], dim=0).view(-1, 1)
+            all_obs = torch.concat([seg['obs'][:-1] for seg in self.segs], dim=0).view(-1, *obs_shape)
+            all_returns = torch.concat([seg['returns'][:-1] for seg in self.segs], dim=0).view(-1, 1)
 
-        for indices in sampler:
-            obs_batch = all_obs[indices].to(self.device)
-            returns_batch = all_returns[indices].to(self.device)
+            for indices in sampler:
+                obs_batch = all_obs[indices].to(self.device)
+                returns_batch = all_returns[indices].to(self.device)
 
-            # obs = []
-            # returns = []
+                if self.store_unnormalised_obs:
+                    obs_batch = obs_batch.to(torch.float32) / 255.
 
-            # for idx in indices:
-            #     process_idx = idx // num_segs
-            #     seg_idx = idx % num_segs
-
-            #     seg = self.segs[seg_idx]
-            #     obs.append(seg["obs"][:, process_idx])
-            #     returns.append(seg["returns"][:, process_idx])
-
-            # obs = torch.stack(obs, dim=1).to(self.device)
-            # returns = torch.stack(returns, dim=1).to(self.device)
-
-            # obs_batch = obs[:-1].view(-1, *obs.size()[2:])
-            # returns_batch = returns[:-1].view(-1, 1)
-
-            if self.store_unnormalised_obs:
-                obs_batch = obs_batch.to(torch.float32) / 255.
-
-            yield obs_batch, returns_batch
+                yield obs_batch, returns_batch
 
 
 class DCPG:
