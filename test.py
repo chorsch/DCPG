@@ -103,7 +103,7 @@ def evaluate(config, actor_critic, device, test_envs=True, norm_infos=None, rend
 
     if rendering:
         imageio.mimsave(render_filename, [np.array(img) for i, img in enumerate(images) if i%1 == 0], duration=200)
-        wandb.log({"pure_eval": wandb.Video(np.array(images).transpose((0,3,1,2)), fps=8)})
+        wandb.log({"pure_eval": wandb.Video(np.array(images).transpose((0,3,1,2)), fps=10)})
 
     # Statistics
     eval_statistics = {
