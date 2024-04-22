@@ -18,7 +18,7 @@ from dcpg.storages import RolloutStorage
 from dcpg.rnd import RandomNetworkDistillation
 from test import evaluate
 
-DEBUG = True
+DEBUG = False
 
 def main(config):
     # Fix random seed
@@ -229,8 +229,13 @@ def main(config):
                 logger.logkv("train/{}".format(key), val) 
 
             # Evaluate pure actor-critic on train environments
+            rendering = False
+            if (j // config["log_interval"]) % 3 == 0:
+                # only render every third eval
+                rendering = config['render_pure_eval']
+            render_filename = os.path.join(config["output_dir"], f"pure_eval_{log_file}_{int(total_num_steps / 100_000)}.gif")
             pure_train_eval_statistics, pure_train_value_statistics = evaluate(
-                config, pure_actor_critic, device, test_envs=False, norm_infos=norm_infos
+                config, pure_actor_critic, device, test_envs=False, norm_infos=norm_infos, rendering=rendering, render_filename=render_filename,
             )
             pure_train_episode_rewards = pure_train_eval_statistics["episode_rewards"]
             pure_train_episode_steps = pure_train_eval_statistics["episode_steps"]
@@ -347,14 +352,14 @@ if __name__ == "__main__":
         parser.add_argument("--exp_name", type=str, required=True)
         parser.add_argument("--env_name", type=str, required=True)
         parser.add_argument("--config", type=str, required=True)
-        parser.add_argument("--seed", type=int, default=0)
+        parser.add_argument("--seed", type=int, default=1)
         parser.add_argument("--debug", action="store_true")
 
         args = parser.parse_args()
 
     # Load config
     if DEBUG:
-        config_file = open("configs/{}.yaml".format('dcpg'), "r")   
+        config_file = open("configs/{}.yaml".format('dcpg'), "r")     
     else:
         # config_file = open("configs/{}.yaml".format(args.exp_name), "r")    
         config_file = open(args.config, "r")   
@@ -364,7 +369,7 @@ if __name__ == "__main__":
     if DEBUG:
         config["exp_name"] = 'dcpg'
         config["env_name"] = 'bigfish'
-        config["seed"] = 0
+        config["seed"] = 1
         config["debug"] = False
         config["project_name"] = "debugging"
         config["log_dir"] = config["log_dir"][1:]
