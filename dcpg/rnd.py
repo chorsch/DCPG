@@ -2,6 +2,8 @@ import torch as th
 import numpy as np
 from typing import Tuple
 
+from dcpg.models import ResNetEncoder
+
 class RunningMeanStd:
     def __init__(self, epsilon: float = 1e-4, shape: Tuple[int, ...] = ()):
         """
@@ -64,7 +66,7 @@ class RandomNetworkDistillation:
                  policy_kwargs, 
                  device="cpu", 
                  flatten_input=False, 
-                 use_cnn=False, 
+                 use_resnet=False, 
                  normalize_images=False, 
                  normalize_output=False,
                  norm_epsilon=1e-12,
@@ -75,7 +77,7 @@ class RandomNetworkDistillation:
         learning_rate = policy_kwargs["learning_rate"]
         self.device=th.device(device)
         self.n_actions = action_space.n
-        self.use_cnn = use_cnn
+        self.use_resnet = use_resnet
         self.normalize_images = normalize_images
         self.normalize_output = normalize_output
         self.norm_epsilon = norm_epsilon
@@ -86,25 +88,9 @@ class RandomNetworkDistillation:
         self.target_net = []
         self.predict_net = []
 
-        if self.use_cnn:
-            self.target_cnn = []
-            self.target_cnn.append(th.nn.Conv2d(observation_space.shape[0], 32, kernel_size=3, stride=1, padding=1, padding_mode='circular'))
-            self.target_cnn.append(th.nn.ReLU())
-            self.target_cnn.append(th.nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1, padding_mode='circular'))
-            self.target_cnn.append(th.nn.ReLU())
-            self.target_cnn.append(th.nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1, padding_mode='circular'))
-            self.target_cnn.append(th.nn.ReLU())
-            self.target_cnn = th.nn.Sequential(*self.target_cnn).to(th.device(device))
-
-            self.predict_cnn = []
-            self.predict_cnn.append(th.nn.Conv2d(observation_space.shape[0], 32, kernel_size=3, stride=1, padding=1, padding_mode='circular'))
-            self.predict_cnn.append(th.nn.ReLU())
-            self.predict_cnn.append(th.nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1, padding_mode='circular'))
-            self.predict_cnn.append(th.nn.ReLU())
-            self.predict_cnn.append(th.nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1, padding_mode='circular'))
-            self.predict_cnn.append(th.nn.ReLU())
-            self.predict_cnn = th.nn.Sequential(*self.predict_cnn).to(th.device(device))
-
+        if self.use_resnet:
+            self.target_cnn = ResNetEncoder(observation_space.shape, feature_dim=1024).to(th.device(device))
+            self.predict_cnn = ResNetEncoder(observation_space.shape, feature_dim=1024).to(th.device(device))
             with th.no_grad():
                 n_flatten = np.prod(self.target_cnn(th.as_tensor(observation_space.sample()[None], device=th.device(device)).float()).shape[1:])
 
@@ -139,7 +125,7 @@ class RandomNetworkDistillation:
         self.predict_net.append(th.nn.Linear(hidden_dims[-1], embed_dim))
         self.predict_net = th.nn.Sequential(*self.predict_net).to(th.device(device))
 
-        if self.use_cnn:
+        if self.use_resnet:
             self.optimizer = th.optim.Adam(list(self.predict_net.parameters()) + list(self.predict_cnn.parameters()), lr=learning_rate)
         else:
             self.optimizer = th.optim.Adam(self.predict_net.parameters(), lr=learning_rate)
@@ -167,7 +153,7 @@ class RandomNetworkDistillation:
             state = state / 255.
         onehot_action =  th.nn.functional.one_hot(action.long(), num_classes=self.n_actions).float()
 
-        if self.use_cnn:
+        if self.use_resnet:
             x_predict = self.predict_cnn(state)
             x_predict = th.flatten(x_predict, start_dim=1)
             x_target = self.target_cnn(state)
