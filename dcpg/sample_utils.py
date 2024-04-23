@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 import torch
 import numpy as np
@@ -6,7 +6,7 @@ import numpy as np
 from dcpg.envs import VecPyTorchProcgen
 from dcpg.models import PPOModel
 from dcpg.storages import RolloutStorage
-from dcpg.rnd import RandomNetworkDistillation
+from dcpg.rnd import RandomNetworkDistillationState, RandomNetworkDistillationStateAction
 
 
 def sample_episodes(
@@ -21,7 +21,8 @@ def sample_episodes(
     pure_expl_ac: PPOModel,
     num_pure_expl_steps: int,
     num_processes: int,
-    rnd: RandomNetworkDistillation,
+    rnd: Union[RandomNetworkDistillationState, RandomNetworkDistillationStateAction],
+    rnd_next_state: bool,
     normalise: bool,
 ) -> Tuple[List[float], torch.Tensor, torch.Tensor, int]:
     """
@@ -74,7 +75,10 @@ def sample_episodes(
         pure_expl_steps_per_env[done] = np.random.randint(0, num_pure_expl_steps+1 , size=sum(done))
 
         # Train the RND loss
-        rnd.observe(obs[pure_expl_inds], pure_action)
+        if rnd_next_state:
+            rnd.observe(obs[pure_expl_inds])
+        else:
+            rnd.observe(obs[pure_expl_inds], pure_action)
 
         # Insert obs, action and reward into rollout storage
         rollouts.insert(obs[normal_inds], next_obs[normal_inds], normal_action, normal_action_log_prob, reward[normal_inds], normal_value, masks[normal_inds], levels[normal_inds], next_levels[normal_inds], normal_inds)
@@ -91,6 +95,6 @@ def sample_episodes(
 
     
     # Update reward to include the intrinsic reward
-    pure_rollouts.update_rewards(rnd, normalise)
+    pure_rollouts.update_rewards(rnd, rnd_next_state, normalise)
 
     return episode_rewards, next_obs, next_levels, num_normal_steps

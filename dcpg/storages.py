@@ -40,14 +40,18 @@ class RolloutStorage(object):
         self.obs_shape = obs_shape
         self.action_space = action_space
 
-    def update_rewards(self, rnd, normalise):
+    def update_rewards(self, rnd, rnd_next_state, normalise):
         for i in range(self.num_processes):
             num_steps = self.step[i]
             if num_steps == 0:
                 # never added any data for this process
                 continue
             with torch.no_grad():
-                intrinsic_rewards = rnd(self.obs[:num_steps, i], self.actions[:num_steps, i], update_rms=normalise)
+                if rnd_next_state:
+                    # we calculate RND of the next state, even when done (which would be the starting state in the next episode)
+                    intrinsic_rewards = rnd(self.obs[1:num_steps+1, i], update_rms=normalise)
+                else:
+                    intrinsic_rewards = rnd(self.obs[:num_steps, i], self.actions[:num_steps, i], update_rms=normalise)
             self.rewards[:num_steps, i] = intrinsic_rewards.unsqueeze(-1)
 
     def __getitem__(self, key: str):

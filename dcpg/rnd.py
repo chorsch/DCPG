@@ -57,7 +57,124 @@ class RunningMeanStd:
         self.var = new_var
         self.count = new_count
 
-class RandomNetworkDistillation:
+class RandomNetworkDistillationState:
+    """This class uses Random Network Distillation to estimate the uncertainty/novelty of state-actions."""
+    def __init__(self, 
+                 action_space, 
+                 observation_space, 
+                 embed_dim, 
+                 policy_kwargs, 
+                 device="cpu", 
+                 flatten_input=False, 
+                 use_resnet=False, 
+                 normalize_images=False, 
+                 normalize_output=False,
+                 norm_epsilon=1e-12,
+                 **kwargs):
+        self.criterion = th.nn.MSELoss(reduction="none")
+        activation = policy_kwargs["activation_fn"]
+        hidden_dims = policy_kwargs["net_arch"]
+        learning_rate = policy_kwargs["learning_rate"]
+        self.device=th.device(device)
+        self.n_actions = action_space.n
+        self.use_resnet = use_resnet
+        self.normalize_images = normalize_images
+        self.normalize_output = normalize_output
+        self.norm_epsilon = norm_epsilon
+
+        if normalize_output:
+            self.rnd_rms = RunningMeanStd(shape=())
+
+        self.target_net = []
+        self.predict_net = []
+
+        if self.use_resnet:
+            self.target_cnn = ResNetEncoder(observation_space.shape, feature_dim=1024).to(th.device(device))
+            self.predict_cnn = ResNetEncoder(observation_space.shape, feature_dim=1024).to(th.device(device))
+            with th.no_grad():
+                n_flatten = np.prod(self.target_cnn(th.as_tensor(observation_space.sample()[None], device=th.device(device)).float()).shape[1:])
+
+            flattened_dim = n_flatten
+        else:
+            if flatten_input:
+                flattened_dim = np.prod(observation_space.shape)
+
+        if flatten_input:
+            self.target_net.append(th.nn.Linear(flattened_dim, hidden_dims[0]))
+        else:
+            # input already flat
+            self.target_net.append(th.nn.Linear(observation_space.shape[0], hidden_dims[0]))
+
+        self.target_net.append(activation())
+        for i in range(len(hidden_dims) - 1):
+            self.target_net.append(th.nn.Linear(hidden_dims[i], hidden_dims[i + 1]))
+            self.target_net.append(activation())
+        self.target_net.append(th.nn.Linear(hidden_dims[-1], embed_dim))
+        self.target_net = th.nn.Sequential(*self.target_net).to(th.device(device))
+
+        self.predict_net = []
+        if flatten_input:
+            self.predict_net.append(th.nn.Linear(flattened_dim, hidden_dims[0]))
+        else:
+            # input already flat
+            self.predict_net.append(th.nn.Linear(observation_space.shape[0], hidden_dims[0]))
+        self.predict_net.append(activation())
+        for i in range(len(hidden_dims) - 1):
+            self.predict_net.append(th.nn.Linear(hidden_dims[i], hidden_dims[i + 1]))
+            self.predict_net.append(activation())
+        self.predict_net.append(th.nn.Linear(hidden_dims[-1], embed_dim))
+        self.predict_net = th.nn.Sequential(*self.predict_net).to(th.device(device))
+
+        if self.use_resnet:
+            self.optimizer = th.optim.Adam(list(self.predict_net.parameters()) + list(self.predict_cnn.parameters()), lr=learning_rate)
+        else:
+            self.optimizer = th.optim.Adam(self.predict_net.parameters(), lr=learning_rate)
+
+    def error(self, state):
+        """Computes the error between the prediction and target network."""
+        if not isinstance(state, th.Tensor):
+            state = th.as_tensor(state, device=self.device)
+        if len(state.shape) == 1:
+            # need to add batch dimension to flat input
+            state = state.unsqueeze(dim=0)
+        if len(state.shape) == 3:
+            # need to add batch dimension to image input
+            state = state.unsqueeze(dim=0)
+
+        if self.normalize_images:
+            state = state / 255.
+
+        if self.use_resnet:
+            x_predict = self.predict_cnn(state)
+            x_predict = th.flatten(x_predict, start_dim=1)
+            x_target = self.target_cnn(state)
+            x_target = th.flatten(x_target, start_dim=1)
+        else:
+            x_predict = th.flatten(state, start_dim=1)
+            x_target = th.flatten(state, start_dim=1)
+
+        return self.criterion(self.predict_net(x_predict), self.target_net(x_target))
+
+    def observe(self, state):
+        """Observes state(s) and 'remembers' them using Random Network Distillation"""
+        self.optimizer.zero_grad()
+        loss = self.error(state).mean()
+        loss.backward()
+        self.optimizer.step()
+
+    def __call__(self, state, update_rms=False):
+        """Returns the estimated uncertainty for observing a (minibatch of) state(s) as Tensor."""
+        rnd = self.error(state).mean(dim=-1)
+
+        if update_rms and self.normalize_output:
+            self.rnd_rms.update(rnd.cpu().numpy())
+
+        if self.normalize_output:
+            rnd = rnd / th.sqrt(th.as_tensor(self.rnd_rms.var, device=self.device) + self.norm_epsilon)
+
+        return rnd
+
+class RandomNetworkDistillationStateAction:
     """This class uses Random Network Distillation to estimate the uncertainty/novelty of state-actions."""
     def __init__(self, 
                  action_space, 

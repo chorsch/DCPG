@@ -15,7 +15,7 @@ from dcpg.envs import make_envs
 from dcpg.models import *
 from dcpg.sample_utils import sample_episodes
 from dcpg.storages import RolloutStorage
-from dcpg.rnd import RandomNetworkDistillation
+from dcpg.rnd import RandomNetworkDistillationState, RandomNetworkDistillationStateAction
 from test import evaluate
 
 DEBUG = False
@@ -105,23 +105,37 @@ def main(config):
 
     # Create Random Network Distillation
     config['rnd_embed_dim'] = 512
-    config['rnd_kwargs'] = dict(activation_fn = torch.nn.ReLU, net_arch=[2048, 2048, 1024], learning_rate=0.0001)
+    config['rnd_kwargs'] = dict(activation_fn = torch.nn.ReLU, net_arch=[1024], learning_rate=0.0001)
     config['rnd_flatten_input'] = True
-    config['rnd_use_cnn'] = False
+    config['rnd_use_resnet'] = True
     config['rnd_normalize_images'] = False
     config['rnd_normalize_output'] = True
+    config['rnd_next_state'] = True
 
-    rnd = RandomNetworkDistillation(
-        envs.action_space,
-        envs.observation_space,
-        config['rnd_embed_dim'],
-        config['rnd_kwargs'],
-        device=device,
-        flatten_input=config['rnd_flatten_input'],
-        use_cnn=config['rnd_use_cnn'],
-        normalize_images=config['rnd_normalize_images'],
-        normalize_output=config['rnd_normalize_output'],
-        )
+    if config['rnd_next_state']:
+        rnd = RandomNetworkDistillationState(
+            envs.action_space,
+            envs.observation_space,
+            config['rnd_embed_dim'],
+            config['rnd_kwargs'],
+            device=device,
+            flatten_input=config['rnd_flatten_input'],
+            use_resnet=config['rnd_use_resnet'],
+            normalize_images=config['rnd_normalize_images'],
+            normalize_output=config['rnd_normalize_output'],
+            )
+    else:
+        rnd = RandomNetworkDistillationStateAction(
+            envs.action_space,
+            envs.observation_space,
+            config['rnd_embed_dim'],
+            config['rnd_kwargs'],
+            device=device,
+            flatten_input=config['rnd_flatten_input'],
+            use_resnet=config['rnd_use_resnet'],
+            normalize_images=config['rnd_normalize_images'],
+            normalize_output=config['rnd_normalize_output'],
+            )
 
     # Initialize environments
     obs = envs.reset()
@@ -152,7 +166,22 @@ def main(config):
         if j < 10:
             # normalise RND on the data of the first 10 rollouts
             normalise = True
-        _, obs, levels, new_normal_steps = sample_episodes(envs, rollouts, pure_rollouts, obs, levels, pure_expl_steps_per_env, episode_steps, actor_critic, pure_actor_critic, num_pure_expl_steps, config['num_processes'], rnd, normalise)
+        _, obs, levels, new_normal_steps = sample_episodes(
+            envs, 
+            rollouts, 
+            pure_rollouts, 
+            obs, 
+            levels, 
+            pure_expl_steps_per_env, 
+            episode_steps, 
+            actor_critic, 
+            pure_actor_critic, 
+            num_pure_expl_steps, 
+            config['num_processes'], 
+            rnd, 
+            config['rnd_next_state'], 
+            normalise
+        )
         num_normal_steps += new_normal_steps
 
         # Compute return
