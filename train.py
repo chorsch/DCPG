@@ -50,7 +50,7 @@ def main(config):
     # )
     logger.configure(
         dir=config["log_dir"], format_strs=["csv", "wandb"], log_suffix=log_file,
-        project_name=config['project_name'], model_name=config['env_name'] + " - " + config['model_name'], args=config,
+        project_name=config['project_name'], model_name=config['env_name'] + " - " + config['model_name'], wandb_dir=config['wandb_dir'], args=config,
     )
     print("\nLog File:", log_file)
 
@@ -95,19 +95,30 @@ def main(config):
     )
     pure_rollouts.to(device)
 
+    # Create full rollout storage that includes all experiences
+    full_rollouts = RolloutStorage(
+        config["num_steps"], config["num_processes"], obs_space.shape, action_space
+    )
+    full_rollouts.to(device)
+
+    # Create feature encoder for E3B
+    feature_encoder = ResNetEncoder(obs_space.shape)
+    feature_encoder.to(device)
+
     # Create agent
     agent_class = getattr(sys.modules[__name__], config["agent_class"])
     agent_params = config["agent_params"]
     agent = agent_class(actor_critic, **agent_params, device=device)
 
     # Create pure exploration agent
-    pure_agent = agent_class(pure_actor_critic, **agent_params, device=device)
+    pure_agent = PureExploration(pure_actor_critic, feature_encoder, action_space.n, **agent_params, device=device)
 
     # Create Random Network Distillation
     config['rnd_embed_dim'] = 512
-    config['rnd_kwargs'] = dict(activation_fn = torch.nn.ReLU, net_arch=[1024], learning_rate=0.0001)
+    # config['rnd_kwargs'] = dict(activation_fn = torch.nn.ReLU, net_arch=[1024], learning_rate=0.0001)
+    config['rnd_kwargs'] = dict(activation_fn = torch.nn.ReLU, net_arch=[2048, 2048, 1024], learning_rate=0.0001)
     config['rnd_flatten_input'] = True
-    config['rnd_use_resnet'] = True
+    config['rnd_use_resnet'] = False
     config['rnd_normalize_images'] = False
     config['rnd_normalize_output'] = True
     config['rnd_next_state'] = True
@@ -136,6 +147,7 @@ def main(config):
             normalize_images=config['rnd_normalize_images'],
             normalize_output=config['rnd_normalize_output'],
             )
+
 
     # Initialize environments
     obs = envs.reset()
@@ -170,6 +182,7 @@ def main(config):
             envs, 
             rollouts, 
             pure_rollouts, 
+            full_rollouts,
             obs, 
             levels, 
             pure_expl_steps_per_env, 
@@ -193,11 +206,12 @@ def main(config):
 
         # Update actor-critic
         train_statistics = agent.update(rollouts)
-        pure_train_statistics = pure_agent.update(pure_rollouts)
+        pure_train_statistics = pure_agent.update(pure_rollouts, full_rollouts)
 
         # Reset rollout storage
         rollouts.after_update()
         pure_rollouts.after_update()
+        full_rollouts.after_update()
 
         # End training
         end = time.time()
@@ -397,13 +411,14 @@ if __name__ == "__main__":
     # Update config
     if DEBUG:
         config["exp_name"] = 'dcpg'
-        config["env_name"] = 'bigfish'
+        config["env_name"] = 'maze'
         config["seed"] = 1
         config["debug"] = False
         config["project_name"] = "debugging"
         config["log_dir"] = config["log_dir"][1:]
         config["output_dir"] = config["output_dir"][1:]
         config["save_dir"] = config["save_dir"][1:]
+        config["wandb_dir"] = config["wandb_dir"][1:]
     else:
         config["exp_name"] = args.exp_name
         config["env_name"] = args.env_name

@@ -3,3 +3,4 @@ from .dcpg import DCPG
 from .ddcpg import DDCPG
 from .ppg import PPG
 from .ppo import PPO
+from .pure import PureExploration

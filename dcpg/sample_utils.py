@@ -13,6 +13,7 @@ def sample_episodes(
     envs: VecPyTorchProcgen,
     rollouts: RolloutStorage,
     pure_rollouts: RolloutStorage,
+    full_rollouts: RolloutStorage,
     obs: torch.Tensor,
     levels: torch.Tensor,
     pure_expl_steps_per_env: np.ndarray,
@@ -83,6 +84,14 @@ def sample_episodes(
         # Insert obs, action and reward into rollout storage
         rollouts.insert(obs[normal_inds], next_obs[normal_inds], normal_action, normal_action_log_prob, reward[normal_inds], normal_value, masks[normal_inds], levels[normal_inds], next_levels[normal_inds], normal_inds)
         pure_rollouts.insert(obs[pure_expl_inds], next_obs[pure_expl_inds], pure_action, pure_action_log_prob, reward[pure_expl_inds], pure_value, masks[pure_expl_inds], levels[pure_expl_inds], next_levels[pure_expl_inds], pure_expl_inds)
+
+        value = torch.zeros((num_processes, 1), dtype=normal_value.dtype, device=device)
+        value[normal_inds] = normal_value
+        value[pure_expl_inds] = pure_value
+        action_log_prob = torch.zeros((num_processes, 1), dtype=normal_action_log_prob.dtype, device=device)
+        action_log_prob[normal_inds] = normal_action_log_prob
+        action_log_prob[pure_expl_inds] = pure_action_log_prob
+        full_rollouts.insert(obs, next_obs, action, action_log_prob, reward, value, masks, levels, next_levels, np.ones(normal_inds.shape, dtype=np.bool_))
 
         # Track episode info
         for info in infos:
