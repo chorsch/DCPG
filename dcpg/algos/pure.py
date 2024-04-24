@@ -231,7 +231,7 @@ class PureExploration(DCPG):
             actions = full_rollouts["actions"]
             dones_masks = full_rollouts["masks"]
             actions = actions.view(-1)
-            dones_masks = dones_masks[:-1].view(-1)
+            dones_masks = dones_masks[1:].view(-1)
             
             phi = self.feature_encoder(inputs.view(-1, *inputs.size()[2:]))
             phi = phi.view(inputs.shape[0], inputs.shape[1], -1)
