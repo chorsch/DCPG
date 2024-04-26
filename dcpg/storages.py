@@ -310,7 +310,7 @@ class E3BRolloutStorage(RolloutStorage):
 
             # Calculate E3B
             with torch.no_grad():
-                encoder_input = self.obs[:num_steps, i]
+                encoder_input = self.obs[1:num_steps+1, i]
                 phi = feature_encoder(encoder_input)
                 # phi = phi.view(B, T, -1)
                 done_masks = self.masks[1:num_steps+1, i]
@@ -348,6 +348,7 @@ class E3BRolloutStorage(RolloutStorage):
                         batch_inverse_covs.copy_(self.inverse_cov_init)
                                                     
             self.inverse_cov[i] = batch_inverse_covs
+            episodic_bonus = episodic_bonus * done_masks.squeeze(-1)
             self.rewards[:num_steps, i] = (episodic_bonus * global_bonus).unsqueeze(-1)
             self.intrinsic_reward_rms.update((episodic_bonus * global_bonus).detach().cpu().numpy())
 
