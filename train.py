@@ -14,7 +14,7 @@ from dcpg.algos import *
 from dcpg.envs import make_envs
 from dcpg.models import *
 from dcpg.sample_utils import sample_episodes
-from dcpg.storages import RolloutStorage
+from dcpg.storages import RolloutStorage, E3BRolloutStorage
 from dcpg.rnd import RandomNetworkDistillationState, RandomNetworkDistillationStateAction
 from test import evaluate
 
@@ -83,6 +83,20 @@ def main(config):
     pure_actor_critic.to(device)
     print("\nPure Exploration Actor-Critic Network:", pure_actor_critic)
 
+    # Create feature encoder for E3B
+    feature_encoder_hidden_dim = 256
+    feature_encoder = ResNetEncoder(obs_space.shape, feature_dim=feature_encoder_hidden_dim)
+    # hidden_dims = [2048, 2048, 1024]
+    # feature_encoder = [torch.nn.Flatten()]
+    # feature_encoder.append(torch.nn.Linear(np.prod(obs_space.shape), hidden_dims[0]))
+    # feature_encoder.append(torch.nn.ReLU())
+    # for i in range(len(hidden_dims) - 1):
+    #     feature_encoder.append(torch.nn.Linear(hidden_dims[i], hidden_dims[i + 1]))
+    #     feature_encoder.append(torch.nn.ReLU())
+    # feature_encoder.append(torch.nn.Linear(hidden_dims[-1], feature_encoder_hidden_dim))
+    # feature_encoder = torch.nn.Sequential(*feature_encoder)
+    feature_encoder.to(device)
+
     # Create rollout storage
     rollouts = RolloutStorage(
         config["num_steps"], config["num_processes"], obs_space.shape, action_space
@@ -90,8 +104,8 @@ def main(config):
     rollouts.to(device)
 
     # Create pure exploration rollout storage
-    pure_rollouts = RolloutStorage(
-        config["num_steps"], config["num_processes"], obs_space.shape, action_space
+    pure_rollouts = E3BRolloutStorage(
+        config["num_steps"], config["num_processes"], obs_space.shape, action_space, feature_encoder_hidden_dim, device, e3b_ridge=config["ridge_regularizer"]
     )
     pure_rollouts.to(device)
 
@@ -100,10 +114,6 @@ def main(config):
         config["num_steps"], config["num_processes"], obs_space.shape, action_space
     )
     full_rollouts.to(device)
-
-    # Create feature encoder for E3B
-    feature_encoder = ResNetEncoder(obs_space.shape)
-    feature_encoder.to(device)
 
     # Create agent
     agent_class = getattr(sys.modules[__name__], config["agent_class"])
@@ -115,12 +125,12 @@ def main(config):
 
     # Create Random Network Distillation
     config['rnd_embed_dim'] = 512
-    # config['rnd_kwargs'] = dict(activation_fn = torch.nn.ReLU, net_arch=[1024], learning_rate=0.0001)
-    config['rnd_kwargs'] = dict(activation_fn = torch.nn.ReLU, net_arch=[2048, 2048, 1024], learning_rate=0.0001)
+    config['rnd_kwargs'] = dict(activation_fn = torch.nn.ReLU, net_arch=[1024], learning_rate=0.0001)
+    # config['rnd_kwargs'] = dict(activation_fn = torch.nn.ReLU, net_arch=[2048, 2048, 1024], learning_rate=0.0001)
     config['rnd_flatten_input'] = True
-    config['rnd_use_resnet'] = False
+    config['rnd_use_resnet'] = True
     config['rnd_normalize_images'] = False
-    config['rnd_normalize_output'] = True
+    config['rnd_normalize_output'] = False
     config['rnd_next_state'] = True
 
     if config['rnd_next_state']:
@@ -175,9 +185,9 @@ def main(config):
 
         # Sample episode
         normalise = False
-        if j < 10:
-            # normalise RND on the data of the first 10 rollouts
-            normalise = True
+        # if j < 10:
+        #     # normalise RND on the data of the first 10 rollouts
+        #     normalise = True
         _, obs, levels, new_normal_steps = sample_episodes(
             envs, 
             rollouts, 
@@ -193,9 +203,11 @@ def main(config):
             config['num_processes'], 
             rnd, 
             config['rnd_next_state'], 
-            normalise
         )
         num_normal_steps += new_normal_steps
+
+        # Compute intrinsic rewards
+        pure_rollouts.compute_intrinsic_rewards(rnd, config['rnd_next_state'], normalise, feature_encoder)
 
         # Compute return
         rollouts.compute_returns(actor_critic, config["gamma"], config["gae_lambda"])

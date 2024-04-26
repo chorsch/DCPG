@@ -2,14 +2,16 @@
 log_dir: /logs
 output_dir: /outputs
 save_dir: /models
+wandb_dir: /wandb
 
 # Weights & Biases
 project_name: "phasic-exploration--dcpg"
-model_name: "DCPG - phasic"
+model_name: "DCPG - Pure E3B"
 
 # Experiment
 log_interval: 10
 num_eval_episodes: 100
+render_pure_eval: True
 
 # Environment
 distribution_mode: easy
@@ -21,8 +23,6 @@ normalize_reward: True
 # Rollout
 num_processes: 64
 num_steps: 256
-# num_processes: 5
-# num_steps: 10
 
 # Policy gradient
 gamma: 0.999
@@ -34,7 +34,8 @@ actor_critic_params:
   shared: True
 
 # Pure Exploration
-num_pure_expl_steps: 50
+num_pure_expl_steps: 1000
+ridge_regularizer: 0.1
 
 # Agent
 agent_class: DCPG

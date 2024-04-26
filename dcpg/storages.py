@@ -9,6 +9,58 @@ from gym.spaces import Space
 
 from dcpg.models import PPOModel
 
+class RunningMeanStd:
+    def __init__(self, epsilon: float = 1e-4, shape: Tuple[int, ...] = ()):
+        """
+        Calulates the running mean and std of a data stream
+        https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
+
+        :param epsilon: helps with arithmetic issues
+        :param shape: the shape of the data stream's output
+        """
+        self.mean = np.zeros(shape, np.float64)
+        self.var = np.ones(shape, np.float64)
+        self.count = epsilon
+
+    def copy(self) -> "RunningMeanStd":
+        """
+        :return: Return a copy of the current object.
+        """
+        new_object = RunningMeanStd(shape=self.mean.shape)
+        new_object.mean = self.mean.copy()
+        new_object.var = self.var.copy()
+        new_object.count = float(self.count)
+        return new_object
+
+    def combine(self, other: "RunningMeanStd") -> None:
+        """
+        Combine stats from another ``RunningMeanStd`` object.
+
+        :param other: The other object to combine with.
+        """
+        self.update_from_moments(other.mean, other.var, other.count)
+
+    def update(self, arr: np.ndarray) -> None:
+        batch_mean = np.mean(arr, axis=0)
+        batch_var = np.var(arr, axis=0)
+        batch_count = arr.shape[0]
+        self.update_from_moments(batch_mean, batch_var, batch_count)
+
+    def update_from_moments(self, batch_mean: np.ndarray, batch_var: np.ndarray, batch_count: float) -> None:
+        delta = batch_mean - self.mean
+        tot_count = self.count + batch_count
+
+        new_mean = self.mean + delta * batch_count / tot_count
+        m_a = self.var * self.count
+        m_b = batch_var * batch_count
+        m_2 = m_a + m_b + np.square(delta) * self.count * batch_count / (self.count + batch_count)
+        new_var = m_2 / (self.count + batch_count)
+
+        new_count = batch_count + self.count
+
+        self.mean = new_mean
+        self.var = new_var
+        self.count = new_count
 
 class RolloutStorage(object):
     def __init__(
@@ -46,6 +98,8 @@ class RolloutStorage(object):
             if num_steps == 0:
                 # never added any data for this process
                 continue
+
+            # Calculate RND
             with torch.no_grad():
                 if rnd_next_state:
                     # we calculate RND of the next state, even when done (which would be the starting state in the next episode)
@@ -212,3 +266,95 @@ class RolloutStorage(object):
                     adv_targs,
                     levels_batch,
                 )
+
+
+class E3BRolloutStorage(RolloutStorage):
+    def __init__(
+        self,
+        num_steps: int,
+        num_processes: int,
+        obs_shape: Sequence[int],
+        action_space: Space,
+        encoder_hidden_dim: int,
+        device,
+        e3b_ridge: float = 0.1,
+    ):
+        super().__init__(
+            num_steps=num_steps,
+            num_processes=num_processes,
+            obs_shape=obs_shape,
+            action_space=action_space,
+        )
+
+        self.device = device
+        self.inverse_cov_init = torch.eye(encoder_hidden_dim) * 1./e3b_ridge
+        self.inverse_cov = self.inverse_cov_init.repeat(num_processes, 1, 1).to(device)
+        self.intrinsic_reward_rms = RunningMeanStd(shape=())
+        self.norm_epsilon = 1e-12
+
+    def compute_intrinsic_rewards(self, rnd, rnd_next_state, normalise, feature_encoder):
+        for i in range(self.num_processes):
+            num_steps = self.step[i]
+            if num_steps == 0:
+                # never added any data for this process
+                continue
+
+            # Calculate RND
+            with torch.no_grad():
+                if rnd_next_state:
+                    # we calculate RND of the next state, even when done (which would be the starting state in the next episode)
+                    global_bonus = rnd(self.obs[1:num_steps+1, i], update_rms=normalise)
+                    global_bonus *= self.masks[1:num_steps+1, i].squeeze(-1)
+                else:
+                    global_bonus = rnd(self.obs[:num_steps, i], self.actions[:num_steps, i], update_rms=normalise)
+
+            # Calculate E3B
+            with torch.no_grad():
+                encoder_input = self.obs[:num_steps, i]
+                phi = feature_encoder(encoder_input)
+                # phi = phi.view(B, T, -1)
+                done_masks = self.masks[1:num_steps+1, i]
+                # dones = buff['dones'].view(B, T)
+                # env_id = buff['env_id'].long()
+                # # make sure all trajectories are from distinct envs
+                # unique_envs = torch.unique(env_id)
+                # if torch.numel(env_id) != torch.numel(unique_envs):
+                #     print(torch.sort(env_id))
+                # #assert torch.numel(env_id) == torch.numel(unique_envs)
+                
+                # # make sure each trajectory comes after previous ones
+                # start_steps = self.start_step[env_id]
+                # assert torch.all(buff['start_step'] > start_steps).item()
+                    
+                batch_inverse_covs = self.inverse_cov[i]
+                episodic_bonus = torch.zeros(num_steps).to(self.device)
+                    
+                for t in range(num_steps):
+                    phi_t = phi[t]
+                    # u = torch.bmm(phi_t.unsqueeze(1), batch_inverse_covs)
+                    u = torch.matmul(batch_inverse_covs, phi_t)
+                    # elliptical_bonus = torch.bmm(u, phi_t.unsqueeze(2))
+                    elliptical_bonus = torch.matmul(phi_t, u)
+                    episodic_bonus[t].copy_(elliptical_bonus)
+                    # torch.bmm(u.permute(0, 2, 1), u, out=self.outer_product_buffers)
+                    outer_product_u = torch.outer(u, u)
+                    outer_product_u = outer_product_u * -1./(1. + elliptical_bonus)
+                    # torch.mul(self.outer_product_buffers, -1./(1. + elliptical_bonus), out=self.outer_product_buffers)
+                    # torch.add(batch_inverse_covs, self.outer_product_buffers, out=batch_inverse_covs)
+                    batch_inverse_covs = batch_inverse_covs + outer_product_u
+                    # if any episodes are done, reset the (inverse) covariance matrix
+                    # if torch.any(dones[:, t]).item():
+                    if (done_masks[t].squeeze(-1) == 0).item():                                                                 
+                        batch_inverse_covs.copy_(self.inverse_cov_init)
+                                                    
+            self.inverse_cov[i] = batch_inverse_covs
+            self.rewards[:num_steps, i] = (episodic_bonus * global_bonus).unsqueeze(-1)
+            self.intrinsic_reward_rms.update((episodic_bonus * global_bonus).detach().cpu().numpy())
+
+        # normalise the intrinsic rewards
+        for i in range(self.num_processes):
+            num_steps = self.step[i]
+            if num_steps == 0:
+                # never added any data for this process
+                continue
+            self.rewards[:num_steps, i] = self.rewards[:num_steps, i] / torch.sqrt(torch.as_tensor(self.intrinsic_reward_rms.var, device=self.device) + self.norm_epsilon)

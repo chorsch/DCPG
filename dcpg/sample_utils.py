@@ -24,7 +24,6 @@ def sample_episodes(
     num_processes: int,
     rnd: Union[RandomNetworkDistillationState, RandomNetworkDistillationStateAction],
     rnd_next_state: bool,
-    normalise: bool,
 ) -> Tuple[List[float], torch.Tensor, torch.Tensor, int]:
     """
     Sample episodes
@@ -104,8 +103,5 @@ def sample_episodes(
         obs = next_obs
         levels = next_levels
         num_normal_steps += sum(normal_inds)
-
-    # Update reward to include the intrinsic reward
-    pure_rollouts.update_rewards(rnd, rnd_next_state, normalise)
 
     return episode_rewards, next_obs, next_levels, num_normal_steps
