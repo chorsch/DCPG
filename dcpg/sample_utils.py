@@ -64,6 +64,9 @@ def sample_episodes(
         # Interact with environment
         next_obs, reward, done, infos = envs.step(action)
         masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done]).to(device)
+        pure_masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done]).to(device)
+        # Set mask to 0 for the last pure exploration step of the episode
+        pure_masks[episode_steps == pure_expl_steps_per_env-1] = torch.FloatTensor([0.0]).to(device)
         next_levels = torch.LongTensor([info["level_seed"] for info in infos]).to(device)
         reward = reward.to(device)
 
@@ -82,7 +85,7 @@ def sample_episodes(
 
         # Insert obs, action and reward into rollout storage
         rollouts.insert(obs[normal_inds], next_obs[normal_inds], normal_action, normal_action_log_prob, reward[normal_inds], normal_value, masks[normal_inds], levels[normal_inds], next_levels[normal_inds], normal_inds)
-        pure_rollouts.insert(obs[pure_expl_inds], next_obs[pure_expl_inds], pure_action, pure_action_log_prob, reward[pure_expl_inds], pure_value, masks[pure_expl_inds], levels[pure_expl_inds], next_levels[pure_expl_inds], pure_expl_inds)
+        pure_rollouts.insert(obs[pure_expl_inds], next_obs[pure_expl_inds], pure_action, pure_action_log_prob, reward[pure_expl_inds], pure_value, pure_masks[pure_expl_inds], levels[pure_expl_inds], next_levels[pure_expl_inds], pure_expl_inds)
 
         # Track episode info
         for info in infos:
