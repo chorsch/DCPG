@@ -50,6 +50,7 @@ class RolloutStorage(object):
                 if rnd_next_state:
                     # we calculate RND of the next state, even when done (which would be the starting state in the next episode)
                     intrinsic_rewards = rnd(self.obs[1:num_steps+1, i], update_rms=normalise)
+                    intrinsic_rewards *= self.masks[1:num_steps+1, i].squeeze(-1)
                 else:
                     intrinsic_rewards = rnd(self.obs[:num_steps, i], self.actions[:num_steps, i], update_rms=normalise)
             self.rewards[:num_steps, i] = intrinsic_rewards.unsqueeze(-1)
