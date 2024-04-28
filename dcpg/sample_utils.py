@@ -78,10 +78,11 @@ def sample_episodes(
         pure_expl_steps_per_env[done] = np.random.randint(0, num_pure_expl_steps+1 , size=sum(done))
 
         # Train the RND loss
-        if rnd_next_state:
-            rnd.observe(obs[pure_expl_inds])
-        else:
-            rnd.observe(obs[pure_expl_inds], pure_action)
+        if sum(pure_expl_inds) > 0:
+            if rnd_next_state:
+                rnd.observe(obs[pure_expl_inds])
+            else:
+                rnd.observe(obs[pure_expl_inds], pure_action)
 
         # Insert obs, action and reward into rollout storage
         rollouts.insert(obs[normal_inds], next_obs[normal_inds], normal_action, normal_action_log_prob, reward[normal_inds], normal_value, masks[normal_inds], levels[normal_inds], next_levels[normal_inds], normal_inds)

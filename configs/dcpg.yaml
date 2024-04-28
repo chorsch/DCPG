@@ -39,6 +39,7 @@ ridge_regularizer: 0.1
 
 # Agent
 agent_class: DCPG
+pure_agen_class: PureExplorationDCPG
 agent_params:
   # PPO params
   clip_param: 0.2

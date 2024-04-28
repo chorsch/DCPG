@@ -18,7 +18,7 @@ from dcpg.storages import RolloutStorage, E3BRolloutStorage
 from dcpg.rnd import RandomNetworkDistillationState, RandomNetworkDistillationStateAction
 from test import evaluate
 
-DEBUG = False
+DEBUG = True
 
 def main(config):
     # Fix random seed
@@ -121,7 +121,8 @@ def main(config):
     agent = agent_class(actor_critic, **agent_params, device=device)
 
     # Create pure exploration agent
-    pure_agent = PureExploration(pure_actor_critic, feature_encoder, action_space.n, **agent_params, device=device)
+    pure_agent_class = getattr(sys.modules[__name__], config["pure_agent_class"])
+    pure_agent = pure_agent_class(pure_actor_critic, feature_encoder, action_space.n, **agent_params, device=device)
 
     # Create Random Network Distillation
     config['rnd_embed_dim'] = 512
@@ -285,8 +286,8 @@ def main(config):
 
             # Evaluate pure actor-critic on train environments
             rendering = False
-            if (j // config["log_interval"]) % 3 == 0:
-                # only render every third eval
+            if (j // config["log_interval"]) % 25 == 0:
+                # only render every 25th eval
                 rendering = config['render_pure_eval']
             render_filename = os.path.join(config["output_dir"], f"pure_eval_{log_file}_{int(total_num_steps / 100_000)}.gif")
             pure_train_eval_statistics, pure_train_value_statistics = evaluate(
@@ -414,7 +415,8 @@ if __name__ == "__main__":
 
     # Load config
     if DEBUG:
-        config_file = open("configs/{}.yaml".format('dcpg'), "r")     
+        # config_file = open("configs/{}.yaml".format('dcpg'), "r")  
+        config_file = open("configs/{}.yaml".format('ppo'), "r")     
     else:
         # config_file = open("configs/{}.yaml".format(args.exp_name), "r")    
         config_file = open(args.config, "r")   
@@ -422,11 +424,11 @@ if __name__ == "__main__":
 
     # Update config
     if DEBUG:
-        config["exp_name"] = 'dcpg'
-        config["env_name"] = 'maze'
+        config["exp_name"] = 'ppo'
+        config["env_name"] = 'starpilot'
         config["seed"] = 1
         config["debug"] = False
-        config["project_name"] = "debugging"
+        # config["project_name"] = "debugging"
         config["log_dir"] = config["log_dir"][1:]
         config["output_dir"] = config["output_dir"][1:]
         config["save_dir"] = config["save_dir"][1:]

@@ -1,11 +1,17 @@
 # Directory
-log_dir: logs
-output_dir: outputs
-save_dir: models
+log_dir: /logs
+output_dir: /outputs
+save_dir: /models
+wandb_dir: /wandb
+
+# Weights & Biases
+project_name: "phasic-exploration--dcpg"
+model_name: "PPO - Phasic E3BxRND"
 
 # Experiment
 log_interval: 10
 num_eval_episodes: 100
+render_pure_eval: True
 
 # Environment
 distribution_mode: easy
@@ -27,8 +33,13 @@ actor_critic_class: PPOModel
 actor_critic_params:
   shared: True
 
+# Pure Exploration
+num_pure_expl_steps: 200
+ridge_regularizer: 100
+
 # Agent
 agent_class: PPO
+pure_agent_class: PureExplorationPPO
 agent_params:
   # PPO params
   clip_param: 0.2
