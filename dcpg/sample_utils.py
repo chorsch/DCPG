@@ -1,18 +1,19 @@
-from typing import List
+from typing import List, Union
 
 import torch
 
 from dcpg.envs import VecPyTorchProcgen
 from dcpg.models import PPOModel
 from dcpg.storages import RolloutStorage
-from dcpg.rnd import RandomNetworkDistillation
+from dcpg.rnd import RandomNetworkDistillationState, RandomNetworkDistillationStateAction
 
 
 def sample_episodes(
     envs: VecPyTorchProcgen,
     rollouts: RolloutStorage,
     actor_critic: PPOModel,
-    rnd: RandomNetworkDistillation,
+    rnd: Union[RandomNetworkDistillationState, RandomNetworkDistillationStateAction],
+    rnd_next_state: bool,
     use_rnd: bool,
     beta: float,
     normalise: bool,
@@ -35,7 +36,10 @@ def sample_episodes(
 
         if use_rnd:
             # Train the RND loss
-            rnd.observe(rollouts.obs[step], action)
+            if rnd_next_state:
+                rnd.observe(rollouts.obs[step])
+            else:
+                rnd.observe(rollouts.obs[step], action)
 
         # Insert obs, action and reward into rollout storage
         rollouts.insert(obs, action, action_log_prob, reward, value, masks, levels)
@@ -47,6 +51,6 @@ def sample_episodes(
 
     if use_rnd:
         # Update reward to include the intrinsic reward
-        rollouts.update_rewards(rnd, beta, normalise)
+        rollouts.update_rewards(rnd, beta, rnd_next_state, normalise)
 
     return episode_rewards

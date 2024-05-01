@@ -33,11 +33,17 @@ class RolloutStorage(object):
         self.num_steps = num_steps
         self.step = 0
 
-    def update_rewards(self, rnd, beta, normalise):
+    def update_rewards(self, rnd, beta, rnd_next_state, normalise):
         with torch.no_grad():
-            intrinsic_rewards = rnd(self.obs[:-1].view(-1, *self.obs.size()[2:]), self.actions.view(-1, self.actions.size(-1)), update_rms=normalise)
-        intrinsic_rewards = intrinsic_rewards.reshape(self.rewards.shape[0], self.rewards.shape[1], -1)
-
+            if rnd_next_state:
+                # we calculate RND of the next state (except if this is the end of an episode)
+                intrinsic_rewards = rnd(self.obs[1:].view(-1, *self.obs.size()[2:]), update_rms=normalise)
+                intrinsic_rewards = intrinsic_rewards.reshape(self.rewards.shape[0], self.rewards.shape[1], -1)
+                intrinsic_rewards *= self.masks[1:]
+            else:
+                intrinsic_rewards = rnd(self.obs[:-1].view(-1, *self.obs.size()[2:]), self.actions.view(-1, self.actions.size(-1)), update_rms=normalise)
+                intrinsic_rewards = intrinsic_rewards.reshape(self.rewards.shape[0], self.rewards.shape[1], -1)
+        
         self.rewards = self.rewards + beta * intrinsic_rewards
 
     def __getitem__(self, key: str):

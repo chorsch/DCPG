@@ -15,7 +15,7 @@ from dcpg.envs import make_envs
 from dcpg.models import *
 from dcpg.sample_utils import sample_episodes
 from dcpg.storages import RolloutStorage
-from dcpg.rnd import RandomNetworkDistillation
+from dcpg.rnd import RandomNetworkDistillationState, RandomNetworkDistillationStateAction
 from test import evaluate
 
 DEBUG = False
@@ -49,7 +49,7 @@ def main(config):
     # )
     logger.configure(
         dir=config["log_dir"], format_strs=["csv", "wandb"], log_suffix=log_file,
-        project_name=config['project_name'], model_name=config['env_name'] + " - " + config['model_name'], args=config,
+        project_name=config['project_name'], model_name=config['env_name'] + " - " + config['model_name'], wandb_dir=config['wandb_dir'], args=config,
     )
     print("\nLog File:", log_file)
 
@@ -88,23 +88,35 @@ def main(config):
 
     # Create Random Network Distillation
     config['rnd_embed_dim'] = 512
-    config['rnd_kwargs'] = dict(activation_fn = torch.nn.ReLU, net_arch=[2048, 2048, 1024], learning_rate=0.0001)
+    config['rnd_kwargs'] = dict(activation_fn = torch.nn.ReLU, net_arch=[1024], learning_rate=0.0001)
     config['rnd_flatten_input'] = True
-    config['rnd_use_cnn'] = False
     config['rnd_normalize_images'] = False
     config['rnd_normalize_output'] = True
 
-    rnd = RandomNetworkDistillation(
-        envs.action_space,
-        envs.observation_space,
-        config['rnd_embed_dim'],
-        config['rnd_kwargs'],
-        device="cuda",
-        flatten_input=config['rnd_flatten_input'],
-        use_cnn=config['rnd_use_cnn'],
-        normalize_images=config['rnd_normalize_images'],
-        normalize_output=config['rnd_normalize_output'],
-        )
+    if config['rnd_next_state']:
+        rnd = RandomNetworkDistillationState(
+            envs.action_space,
+            envs.observation_space,
+            config['rnd_embed_dim'],
+            config['rnd_kwargs'],
+            device=device,
+            flatten_input=config['rnd_flatten_input'],
+            use_resnet=config['rnd_use_resnet'],
+            normalize_images=config['rnd_normalize_images'],
+            normalize_output=config['rnd_normalize_output'],
+            )
+    else:
+        rnd = RandomNetworkDistillationStateAction(
+            envs.action_space,
+            envs.observation_space,
+            config['rnd_embed_dim'],
+            config['rnd_kwargs'],
+            device=device,
+            flatten_input=config['rnd_flatten_input'],
+            use_resnet=config['rnd_use_resnet'],
+            normalize_images=config['rnd_normalize_images'],
+            normalize_output=config['rnd_normalize_output'],
+            )
 
     # Initialize environments
     obs = envs.reset()
@@ -130,7 +142,7 @@ def main(config):
         if j < 10:
             # normalise RND on the data of the first 10 rollouts
             normalise = True
-        sample_episodes(envs, rollouts, actor_critic, rnd, config['use_rnd'], config['beta'], normalise)
+        sample_episodes(envs, rollouts, actor_critic, rnd, config['rnd_next_state'], config['use_rnd'], config['beta'], normalise)
 
         # Compute return
         with torch.no_grad():
@@ -301,7 +313,7 @@ if __name__ == "__main__":
 
         parser.add_argument("--exp_name", type=str, required=True)
         parser.add_argument("--env_name", type=str, required=True)
-        parser.add_argument("--seed", type=int, default=0)
+        parser.add_argument("--seed", type=int, default=1)
         parser.add_argument("--debug", action="store_true")
 
         args = parser.parse_args()
@@ -317,9 +329,12 @@ if __name__ == "__main__":
     if DEBUG:
         config["exp_name"] = 'dcpg'
         config["env_name"] = 'bigfish'
-        config["seed"] = 0
+        config["seed"] = 1
         config["debug"] = False
         config["project_name"] = "debugging"
+        config["log_dir"] = config["log_dir"][1:]
+        config["output_dir"] = config["output_dir"][1:]
+        config["save_dir"] = config["save_dir"][1:]
     else:
         config["exp_name"] = args.exp_name
         config["env_name"] = args.env_name
