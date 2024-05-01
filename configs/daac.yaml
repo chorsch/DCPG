@@ -2,6 +2,11 @@
 log_dir: /logs
 output_dir: /outputs
 save_dir: /models
+wandb_dir: /wandb
+
+# Weights & Biases
+project_name: "DCPG"
+model_name: "DAAC"
 
 # Experiment
 log_interval: 10

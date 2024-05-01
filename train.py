@@ -44,7 +44,8 @@ def main(config):
     if config["debug"]:
         log_file += "-debug"
     logger.configure(
-        dir=config["log_dir"], format_strs=["csv", "stdout"], log_suffix=log_file
+        dir=config["log_dir"], format_strs=["csv", "wandb"], log_suffix=log_file,
+        project_name=config['project_name'], model_name=config['env_name'] + " - " + config['model_name'], wandb_dir=config['wandb_dir'], args=config,
     )
     print("\nLog File:", log_file)
 
@@ -294,6 +295,7 @@ if __name__ == "__main__":
         config["log_dir"] = config["log_dir"][1:]
         config["output_dir"] = config["output_dir"][1:]
         config["save_dir"] = config["save_dir"][1:]
+        config["wandb_dir"] = config["wandb_dir"][1:]
     else:
         config["exp_name"] = args.exp_name
         config["env_name"] = args.env_name
