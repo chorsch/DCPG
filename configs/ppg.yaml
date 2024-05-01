@@ -1,7 +1,7 @@
 # Directory
-log_dir: logs
-output_dir: outputs
-save_dir: models
+log_dir: /logs
+output_dir: /outputs
+save_dir: /models
 
 # Experiment
 log_interval: 10

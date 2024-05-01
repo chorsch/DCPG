@@ -17,6 +17,7 @@ from dcpg.sample_utils import sample_episodes
 from dcpg.storages import RolloutStorage
 from test import evaluate
 
+DEBUG = False
 
 def main(config):
     # Fix random seed
@@ -265,25 +266,39 @@ def main(config):
 
 
 if __name__ == "__main__":
-    # Argument
-    parser = argparse.ArgumentParser()
+    if not DEBUG:
+        # Argument
+        parser = argparse.ArgumentParser()
 
-    parser.add_argument("--exp_name", type=str, required=True)
-    parser.add_argument("--env_name", type=str, required=True)
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--debug", action="store_true")
+        parser.add_argument("--exp_name", type=str, required=True)
+        parser.add_argument("--env_name", type=str, required=True)
+        parser.add_argument("--seed", type=int, default=1)
+        parser.add_argument("--debug", action="store_true")
 
-    args = parser.parse_args()
+        args = parser.parse_args()
 
     # Load config
-    config_file = open("configs/{}.yaml".format(args.exp_name), "r")
+    if DEBUG:
+        config_file = open("configs/{}.yaml".format('dcpg'), "r")   
+    else:
+        config_file = open("configs/{}.yaml".format(args.exp_name), "r")    
     config = yaml.load(config_file, Loader=yaml.FullLoader)
 
     # Update config
-    config["exp_name"] = args.exp_name
-    config["env_name"] = args.env_name
-    config["seed"] = args.seed
-    config["debug"] = args.debug
+    if DEBUG:
+        config["exp_name"] = 'dcpg'
+        config["env_name"] = 'bigfish'
+        config["seed"] = 1
+        config["debug"] = False
+        config["project_name"] = "debugging"
+        config["log_dir"] = config["log_dir"][1:]
+        config["output_dir"] = config["output_dir"][1:]
+        config["save_dir"] = config["save_dir"][1:]
+    else:
+        config["exp_name"] = args.exp_name
+        config["env_name"] = args.env_name
+        config["seed"] = args.seed
+        config["debug"] = args.debug
 
     # Run main
     main(config)
