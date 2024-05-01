@@ -15,9 +15,10 @@ from dcpg.envs import make_envs
 from dcpg.models import *
 from dcpg.sample_utils import sample_episodes
 from dcpg.storages import RolloutStorage
+from dcpg.buffer import StateBuffer
 from test import evaluate
 
-DEBUG = False
+DEBUG = True
 
 def main(config):
     # Fix random seed
@@ -86,8 +87,10 @@ def main(config):
     obs = envs.reset()
     *_, infos = envs.step_wait()
     levels = torch.LongTensor([info["level_seed"] for info in infos])
+    states = envs.get_states()
     rollouts.obs[0].copy_(obs)
     rollouts.levels[0].copy_(levels)
+    rollouts.states[0] = states
 
     # Train actor-critic
     num_env_steps_epoch = config["num_steps"] * config["num_processes"]

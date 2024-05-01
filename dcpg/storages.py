@@ -1,4 +1,4 @@
-from typing import Iterator, Sequence, Tuple
+from typing import Iterator, Sequence, Tuple, ByteString
 
 import torch
 from torch import device, Tensor
@@ -29,6 +29,7 @@ class RolloutStorage(object):
         self.returns = torch.zeros(num_steps + 1, num_processes, 1)
         self.masks = torch.ones(num_steps + 1, num_processes, 1)
         self.levels = torch.LongTensor(num_steps + 1, num_processes).fill_(0)
+        self.states = [[None]*num_processes for _ in range(num_steps)]
 
         self.num_steps = num_steps
         self.step = 0
@@ -55,6 +56,7 @@ class RolloutStorage(object):
         value_preds: Tensor,
         masks: Tensor,
         levels: Tensor,
+        states,
     ):
         self.obs[self.step + 1].copy_(obs)
         self.actions[self.step].copy_(actions)
@@ -63,6 +65,7 @@ class RolloutStorage(object):
         self.value_preds[self.step].copy_(value_preds)
         self.masks[self.step + 1].copy_(masks)
         self.levels[self.step + 1].copy_(levels)
+        self.states[self.step + 1] = states
 
         self.step = (self.step + 1) % self.num_steps
 
@@ -70,6 +73,7 @@ class RolloutStorage(object):
         self.obs[0].copy_(self.obs[-1])
         self.masks[0].copy_(self.masks[-1])
         self.levels[0].copy_(self.levels[-1])
+        self.states[0] = self.states[-1]
 
     def compute_returns(self, next_value: Tensor, gamma: float, gae_lambda: float):
         self.value_preds[-1] = next_value

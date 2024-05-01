@@ -27,9 +27,10 @@ def sample_episodes(
         obs, reward, done, infos = envs.step(action)
         masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
         levels = torch.LongTensor([info["level_seed"] for info in infos])
+        states = envs.get_states()
 
         # Insert obs, action and reward into rollout storage
-        rollouts.insert(obs, action, action_log_prob, reward, value, masks, levels)
+        rollouts.insert(obs, action, action_log_prob, reward, value, masks, levels, states)
 
         # Track episode info
         for info in infos:
