@@ -12,14 +12,22 @@ from dcpg.distributions import FixedCategorical
 
 
 class Buffer:
-    def __init__(self, buffer_size, device):
+    def __init__(self, buffer_size, device, store_unnormalised_obs=True):
         self.segs = deque(maxlen=buffer_size)
         self.device = device
+        self.store_unnormalised_obs = store_unnormalised_obs
 
     def __len__(self):
         return len(self.segs)
 
     def insert(self, seg):
+        if self.store_unnormalised_obs:
+            seg['obs'] = (seg['obs']*255).to(torch.uint8)
+        
+        seg['obs'] = seg['obs'].cpu()
+        seg['returns'] = seg['returns'].cpu()
+        seg['actions'] = seg['actions'].cpu()
+
         self.segs.append(seg)
 
     def reset(self):
@@ -54,6 +62,9 @@ class Buffer:
             obs_batch = torch.stack(obs, dim=1).to(self.device)
             actions_batch = torch.stack(actions, dim=1).to(self.device)
             returns_batch = torch.stack(returns, dim=1).to(self.device)
+
+            if self.store_unnormalised_obs:
+                obs_batch = obs_batch.to(torch.float32) / 255.
 
             yield obs_batch, actions_batch, returns_batch
 
@@ -121,7 +132,7 @@ class DDCPG:
 
     def update(self, rollouts):
         # Add obs, actions, returns to buffer
-        seg = {key: rollouts[key].cpu() for key in ["obs", "actions", "returns"]}
+        seg = {key: rollouts[key] for key in ["obs", "actions", "returns"]}
         self.buffer.insert(seg)
 
         # Update actor-critic
