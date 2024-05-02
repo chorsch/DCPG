@@ -17,6 +17,7 @@ from dcpg.sample_utils import sample_episodes
 from dcpg.storages import RolloutStorage
 from dcpg.buffer import StateBuffer
 from test import evaluate
+from dcpg.render_utils import render_starting_states
 
 DEBUG = True
 
@@ -134,6 +135,10 @@ def main(config):
 
         # Statistics
         if j % config["log_interval"] == 0:
+            # Render a sample of states from the state buffer
+            if (j // config["log_interval"]) % 10 == 0:
+                render_starting_states(state_buffer)
+
             # Train statistics
             total_num_steps = (j + 1) * config["num_processes"] * config["num_steps"]
             time_per_epoch = elapsed_time / (j + 1)
