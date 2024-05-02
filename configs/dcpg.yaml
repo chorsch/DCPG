@@ -5,8 +5,8 @@ save_dir: /models
 wandb_dir: /wandb
 
 # Weights & Biases
-project_name: "DCPG"
-model_name: "DCPG"
+project_name: "phasic-exploration--dcpg"
+model_name: "DCPG - Teleport FIFO"
 
 # Experiment
 log_interval: 10
@@ -31,6 +31,9 @@ gae_lambda: 0.95
 actor_critic_class: PPOModel
 actor_critic_params:
   shared: True
+
+# State buffer
+state_buffer_size: 16_448 # 64*257
 
 # Agent
 agent_class: DCPG

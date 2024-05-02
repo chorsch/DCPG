@@ -29,7 +29,7 @@ class RolloutStorage(object):
         self.returns = torch.zeros(num_steps + 1, num_processes, 1)
         self.masks = torch.ones(num_steps + 1, num_processes, 1)
         self.levels = torch.LongTensor(num_steps + 1, num_processes).fill_(0)
-        self.states = [[None]*num_processes for _ in range(num_steps)]
+        self.states = [[None]*num_processes for _ in range(num_steps + 1)]
 
         self.num_steps = num_steps
         self.step = 0

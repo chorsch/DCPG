@@ -78,6 +78,11 @@ def main(config):
     )
     rollouts.to(device)
 
+    # Create state buffer
+    state_buffer = StateBuffer(
+        config["state_buffer_size"], device, obs_space.shape
+    )
+
     # Create agent
     agent_class = getattr(sys.modules[__name__], config["agent_class"])
     agent_params = config["agent_params"]
@@ -105,7 +110,10 @@ def main(config):
         actor_critic.train()
 
         # Sample episode
-        sample_episodes(envs, rollouts, actor_critic)
+        sample_episodes(envs, rollouts, state_buffer, actor_critic)
+
+        # Add states to the state buffer
+        state_buffer.add(rollouts["obs"], rollouts["states"])
 
         # Compute return
         with torch.no_grad():
@@ -294,7 +302,7 @@ if __name__ == "__main__":
         config["env_name"] = 'bigfish'
         config["seed"] = 1
         config["debug"] = False
-        config["project_name"] = "debugging"
+        # config["project_name"] = "debugging"
         config["log_dir"] = config["log_dir"][1:]
         config["output_dir"] = config["output_dir"][1:]
         config["save_dir"] = config["save_dir"][1:]
