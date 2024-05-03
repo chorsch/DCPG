@@ -80,37 +80,39 @@ class RNDStateBuffer(FIFOStateBuffer):
             )
         
     def add(self, observations, states):
-        observations = observations.view(-1, *self.obs.size()[1:])
-        states = np.concatenate(states).flatten()
+        if not self.full:
+            super().add(observations, states)
+        else:
+            observations = observations.view(-1, *self.obs.size()[1:])
+            states = np.concatenate(states).flatten()
 
-        num_states = observations.shape[0]    # num_steps * num_processes
+            num_states = observations.shape[0]    # num_steps * num_processes
 
-        # Add the new states in minibatches
-        sampler = BatchSampler(
-            SubsetRandomSampler(range(num_states)), self.add_batch_size, drop_last=False
-        )
-        for indices in sampler:
-            obs_batch = observations[indices]
-            states_batch = states[indices]
+            # Add the new states in minibatches
+            sampler = BatchSampler(
+                SubsetRandomSampler(range(num_states)), self.add_batch_size, drop_last=False
+            )
+            for indices in sampler:
+                obs_batch = observations[indices]
+                states_batch = states[indices]
 
-            with torch.no_grad():
-                rnd_values_batch = self.rnd(obs_batch).cpu().numpy()
+                with torch.no_grad():
+                    rnd_values_batch = self.rnd(obs_batch).cpu().numpy()
 
-            # replace the states with lowest RND
-            lowest_rnd_indices = self.rnd_values.argsort()[:self.add_batch_size]
+                # replace the states with lowest RND
+                lowest_rnd_indices = self.rnd_values.argsort()[:self.add_batch_size]
 
-            # Add observations
-            if self.store_unnormalised_obs:
-                obs_batch = (obs_batch*255).to(torch.uint8).cpu()
-            self.obs[lowest_rnd_indices] = obs_batch
+                # Add observations
+                if self.store_unnormalised_obs:
+                    obs_batch = (obs_batch*255).to(torch.uint8).cpu()
+                self.obs[lowest_rnd_indices] = obs_batch
 
-            # Add states
-            for c,v in enumerate(lowest_rnd_indices):
-                self.states[v] = states_batch[c]
+                # Add states
+                for c,v in enumerate(lowest_rnd_indices):
+                    self.states[v] = states_batch[c]
 
-            # Update RND values
-            self.rnd_values[lowest_rnd_indices] = rnd_values_batch
-                
+                # Update RND values
+                self.rnd_values[lowest_rnd_indices] = rnd_values_batch
 
 
         # Train RND on the buffer

@@ -321,6 +321,7 @@ if __name__ == "__main__":
 
         parser.add_argument("--exp_name", type=str, required=True)
         parser.add_argument("--env_name", type=str, required=True)
+        parser.add_argument("--config", type=str, required=True)
         parser.add_argument("--seed", type=int, default=1)
         parser.add_argument("--debug", action="store_true")
 
