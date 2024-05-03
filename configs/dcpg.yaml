@@ -6,7 +6,7 @@ wandb_dir: /wandb
 
 # Weights & Biases
 project_name: "phasic-exploration--dcpg"
-model_name: "DCPG - Teleport FIFO"
+model_name: "DCPG - Teleport FIFO+RND"
 
 # Experiment
 log_interval: 10
@@ -34,6 +34,9 @@ actor_critic_params:
 
 # State buffer
 state_buffer_size: 16_448 # 64*257
+prob_to_teleport: .8
+use_rnd: True
+rnd_epoch: 5
 
 # Agent
 agent_class: DCPG

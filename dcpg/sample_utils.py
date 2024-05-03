@@ -6,14 +6,15 @@ import numpy as np
 from dcpg.envs import VecPyTorchProcgen
 from dcpg.models import PPOModel
 from dcpg.storages import RolloutStorage
-from dcpg.buffer import StateBuffer
+from dcpg.buffer import FIFOStateBuffer
 
 
 def sample_episodes(
     envs: VecPyTorchProcgen,
     rollouts: RolloutStorage,
-    state_buffer: StateBuffer,
+    state_buffer: FIFOStateBuffer,
     actor_critic: PPOModel,
+    prob_to_teleport: float,
 ) -> List[float]:
     """
     Sample episodes
@@ -34,15 +35,17 @@ def sample_episodes(
 
         if np.any(done):
             if state_buffer.full:
-                # Teleport to state from the state buffer
                 num_of_dones = sum(done)
                 teleport_obs, teleport_states = state_buffer.sample(num_of_dones)
 
                 for c, v in enumerate(np.where(done)[0]):
-                    states[v] = teleport_states[c]
-                    obs[v] = teleport_obs[c]
+                    if np.random.rand() < prob_to_teleport:
+                        # Teleport to state from the state buffer
+                        states[v] = teleport_states[c]
+                        obs[v] = teleport_obs[c]
+                    
 
-                envs.set_states(teleport_states, np.where(done)[0])
+                envs.set_states(states, np.arange(done.shape[0]))
 
         # Insert obs, action and reward into rollout storage
         rollouts.insert(obs, action, action_log_prob, reward, value, masks, levels, states)

@@ -7,6 +7,7 @@ import yaml
 
 import numpy as np
 import torch
+import dill
 
 from baselines import logger
 
@@ -15,7 +16,7 @@ from dcpg.envs import make_envs
 from dcpg.models import *
 from dcpg.sample_utils import sample_episodes
 from dcpg.storages import RolloutStorage
-from dcpg.buffer import StateBuffer
+from dcpg.buffer import FIFOStateBuffer
 from test import evaluate
 from dcpg.render_utils import render_starting_states
 
@@ -80,8 +81,15 @@ def main(config):
     rollouts.to(device)
 
     # Create state buffer
-    state_buffer = StateBuffer(
-        config["state_buffer_size"], device, obs_space.shape
+    config['rnd_embed_dim'] = 512
+    config['rnd_kwargs'] = dict(activation_fn = torch.nn.ReLU, net_arch=[1024], learning_rate=0.0001)
+    config['rnd_flatten_input'] = True
+    config['rnd_use_resnet'] = True
+    config['rnd_normalize_images'] = False
+    config['rnd_normalize_output'] = False
+
+    state_buffer = FIFOStateBuffer(
+        config, config["state_buffer_size"], device, obs_space, action_space, use_rnd=config["use_rnd"], rnd_epoch=config["rnd_epoch"],
     )
 
     # Create agent
@@ -111,7 +119,7 @@ def main(config):
         actor_critic.train()
 
         # Sample episode
-        sample_episodes(envs, rollouts, state_buffer, actor_critic)
+        sample_episodes(envs, rollouts, state_buffer, actor_critic, config["prob_to_teleport"])
 
         # Add states to the state buffer
         state_buffer.add(rollouts["obs"], rollouts["states"])
@@ -280,6 +288,10 @@ def main(config):
                 actor_critic.state_dict(),
                 os.path.join(config["save_dir"], "agent{}.pt".format(log_file)),
             )
+
+            # Save states buffer
+            with open(os.path.join(config["save_dir"], "state_buffer{}.pl".format(log_file)), 'wb') as file:
+                dill.dump({"observations": state_buffer.obs.detach().cpu().numpy(), "states": np.array(state_buffer.states)}, file)
 
 
 if __name__ == "__main__":
