@@ -16,7 +16,7 @@ from dcpg.envs import make_envs
 from dcpg.models import *
 from dcpg.sample_utils import sample_episodes
 from dcpg.storages import RolloutStorage
-from dcpg.buffer import FIFOStateBuffer
+from dcpg.buffer import FIFOStateBuffer, RNDFIFOStateBuffer
 from test import evaluate
 from dcpg.render_utils import render_starting_states
 
@@ -81,16 +81,21 @@ def main(config):
     rollouts.to(device)
 
     # Create state buffer
-    config['rnd_embed_dim'] = 512
-    config['rnd_kwargs'] = dict(activation_fn = torch.nn.ReLU, net_arch=[1024], learning_rate=0.0001)
-    config['rnd_flatten_input'] = True
-    config['rnd_use_resnet'] = True
-    config['rnd_normalize_images'] = False
-    config['rnd_normalize_output'] = False
+    if config["use_rnd"]:
+        config['rnd_embed_dim'] = 512
+        config['rnd_kwargs'] = dict(activation_fn = torch.nn.ReLU, net_arch=[1024], learning_rate=0.0001)
+        config['rnd_flatten_input'] = True
+        config['rnd_use_resnet'] = True
+        config['rnd_normalize_images'] = False
+        config['rnd_normalize_output'] = False
 
-    state_buffer = FIFOStateBuffer(
-        config, config["state_buffer_size"], device, obs_space, action_space, use_rnd=config["use_rnd"], rnd_epoch=config["rnd_epoch"],
-    )
+        state_buffer = RNDFIFOStateBuffer(
+            config, config["state_buffer_size"], device, obs_space, action_space, rnd_epoch=config["rnd_epoch"],
+        )
+    else:
+        state_buffer = FIFOStateBuffer(
+            config["state_buffer_size"], device, obs_space,
+        )
 
     # Create agent
     agent_class = getattr(sys.modules[__name__], config["agent_class"])

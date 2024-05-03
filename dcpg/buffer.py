@@ -8,39 +8,18 @@ from dcpg.rnd import RandomNetworkDistillationState
 import numpy as np
 
 class FIFOStateBuffer:
-    def __init__(self, config, buffer_size, device, obs_space, action_space, store_unnormalised_obs=True, use_rnd=False, num_mini_batch=8, rnd_epoch=1):
+    def __init__(self, buffer_size, device, obs_space, store_unnormalised_obs=True):
         self.num_states_added = 0
         self.full = False
         self.size = buffer_size
         self.store_unnormalised_obs = store_unnormalised_obs
         self.device = device
         self.obs_space = obs_space
-        self.action_space = action_space
         self.states = [None]*buffer_size
         if store_unnormalised_obs:
             self.obs = torch.zeros(buffer_size, *obs_space.shape, dtype=torch.uint8)
         else:
             self.obs = torch.zeros(buffer_size, *obs_space.shape)
-
-        self.rnd_num_mini_batch = num_mini_batch
-        self.rnd_epoch = rnd_epoch
-        self.use_rnd = use_rnd
-        if self.use_rnd:
-            self.rnd_values = np.zeros(buffer_size)
-
-            self.rnd = RandomNetworkDistillationState(
-                action_space,
-                obs_space,
-                config['rnd_embed_dim'],
-                config['rnd_kwargs'],
-                device=device,
-                flatten_input=config['rnd_flatten_input'],
-                use_resnet=config['rnd_use_resnet'],
-                normalize_images=config['rnd_normalize_images'],
-                normalize_output=config['rnd_normalize_output'],
-                )
-
-        self.config = config
 
     def add(self, observations, states):
         if self.store_unnormalised_obs:
@@ -59,64 +38,12 @@ class FIFOStateBuffer:
         if self.num_states_added >= self.size:
             self.full = True
 
-        # Train RND on the buffer
-        if self.use_rnd:
-            # The buffer has changed so much we need to reinitialise the RND networks
-            self.rnd = RandomNetworkDistillationState(
-                self.action_space,
-                self.obs_space,
-                self.config['rnd_embed_dim'],
-                self.config['rnd_kwargs'],
-                device=self.device,
-                flatten_input=self.config['rnd_flatten_input'],
-                use_resnet=self.config['rnd_use_resnet'],
-                normalize_images=self.config['rnd_normalize_images'],
-                normalize_output=self.config['rnd_normalize_output'],
-                )
-
-            sample_max = self.size if self.full else self.num_states_added
-            for _ in range(max(self.rnd_epoch, 1)):
-                # if rnd_epoch > 1 assume its integer and perform several epochs
-                sampler = BatchSampler(
-                    SubsetRandomSampler(range(sample_max)), self.size // self.rnd_num_mini_batch, drop_last=True
-                )
-
-                max_num_updates = self.rnd_num_mini_batch * self.rnd_epoch
-                for count, indices in enumerate(sampler):
-                    if count == max_num_updates:
-                        # don't perform anymore RND updates
-                        # this can only trigger if self.rnd_epoch < 1
-                        break
-
-                    obs_batch = self.obs[indices].to(self.device)
-                    if self.store_unnormalised_obs:
-                        obs_batch = obs_batch.to(torch.float32) / 255.
-                    self.rnd.observe(obs_batch)
-
-
-
-            # update the RND values of the states in the buffer
-            sampler = BatchSampler(
-                    SubsetRandomSampler(range(sample_max)), self.size // self.rnd_num_mini_batch, drop_last=False
-                )
-            for indices in sampler:
-                obs_batch = self.obs[indices].to(self.device)
-                if self.store_unnormalised_obs:
-                    obs_batch = obs_batch.to(torch.float32) / 255.
-                with torch.no_grad():
-                    self.rnd_values[indices] = self.rnd(obs_batch).cpu().numpy()
-
-
-
     def sample(self, batch_size):
         sample_max = self.size if self.full else self.num_states_added
-        if self.use_rnd:
-            # sample uniformly from the 5*batch_size states with highest RND
-            highest_rnd_indices = self.rnd_values.argsort()[-5*batch_size:]
-            batch_inds = np.random.choice(highest_rnd_indices, size=batch_size, replace=False)
-        else:
-            batch_inds = np.random.randint(self.size-sample_max, self.size, size=batch_size)
+        batch_inds = np.random.randint(self.size-sample_max, self.size, size=batch_size)
+        return self._get_samples(batch_inds)
 
+    def _get_samples(self, batch_inds):
         obs_batch = []
         states_batch = []
         for i in batch_inds:
@@ -129,6 +56,92 @@ class FIFOStateBuffer:
             obs_batch = obs_batch.to(torch.float32) / 255.
 
         return obs_batch, states_batch
+    
+
+class RNDFIFOStateBuffer(FIFOStateBuffer):
+    def __init__(self, config, buffer_size, device, obs_space, action_space, store_unnormalised_obs=True, num_mini_batch=8, rnd_epoch=1):
+        super().__init__(buffer_size, device, obs_space, store_unnormalised_obs=store_unnormalised_obs)
+
+        self.action_space = action_space
+        self.rnd_num_mini_batch = num_mini_batch
+        self.rnd_epoch = rnd_epoch
+        self.rnd_values = np.zeros(buffer_size)
+
+        self.rnd = RandomNetworkDistillationState(
+            action_space,
+            obs_space,
+            config['rnd_embed_dim'],
+            config['rnd_kwargs'],
+            device=device,
+            flatten_input=config['rnd_flatten_input'],
+            use_resnet=config['rnd_use_resnet'],
+            normalize_images=config['rnd_normalize_images'],
+            normalize_output=config['rnd_normalize_output'],
+            )
+
+        self.config = config
+
+    def add(self, observations, states):
+        super().add(observations, states)
+
+        # Train RND on the buffer
+        # The buffer has changed so much we need to reinitialise the RND networks
+        self.rnd = RandomNetworkDistillationState(
+            self.action_space,
+            self.obs_space,
+            self.config['rnd_embed_dim'],
+            self.config['rnd_kwargs'],
+            device=self.device,
+            flatten_input=self.config['rnd_flatten_input'],
+            use_resnet=self.config['rnd_use_resnet'],
+            normalize_images=self.config['rnd_normalize_images'],
+            normalize_output=self.config['rnd_normalize_output'],
+            )
+
+        sample_max = self.size if self.full else self.num_states_added
+        for _ in range(max(self.rnd_epoch, 1)):
+            # if rnd_epoch > 1 assume its integer and perform several epochs
+            sampler = BatchSampler(
+                SubsetRandomSampler(range(sample_max)), self.size // self.rnd_num_mini_batch, drop_last=True
+            )
+
+            max_num_updates = self.rnd_num_mini_batch * self.rnd_epoch
+            for count, indices in enumerate(sampler):
+                if count == max_num_updates:
+                    # don't perform anymore RND updates
+                    # this can only trigger if self.rnd_epoch < 1
+                    break
+
+                obs_batch = self.obs[indices].to(self.device)
+                if self.store_unnormalised_obs:
+                    obs_batch = obs_batch.to(torch.float32) / 255.
+                self.rnd.observe(obs_batch)
+
+
+
+        # update the RND values of the states in the buffer
+        sampler = BatchSampler(
+                SubsetRandomSampler(range(sample_max)), self.size // self.rnd_num_mini_batch, drop_last=False
+            )
+        for indices in sampler:
+            obs_batch = self.obs[indices].to(self.device)
+            if self.store_unnormalised_obs:
+                obs_batch = obs_batch.to(torch.float32) / 255.
+            with torch.no_grad():
+                self.rnd_values[indices] = self.rnd(obs_batch).cpu().numpy()
+
+
+
+    def sample(self, batch_size):
+        sample_max = self.size if self.full else self.num_states_added
+
+        # sample uniformly from the 5*batch_size states with highest RND
+        highest_rnd_indices = self.rnd_values[:sample_max].argsort()[-5*batch_size:]
+        batch_inds = np.random.choice(highest_rnd_indices, size=batch_size, replace=False)
+
+
+        return super()._get_samples(batch_inds)
+
 
     # def feed_forward_generator(self, num_mini_batch=None, mini_batch_size=None):
     #     num_processes = self.segs[0]["obs"].size(1)
