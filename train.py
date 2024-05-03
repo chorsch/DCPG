@@ -16,7 +16,7 @@ from dcpg.envs import make_envs
 from dcpg.models import *
 from dcpg.sample_utils import sample_episodes
 from dcpg.storages import RolloutStorage
-from dcpg.buffer import FIFOStateBuffer, RNDFIFOStateBuffer
+from dcpg.buffer import FIFOStateBuffer, RNDFIFOStateBuffer, RNDStateBuffer
 from test import evaluate
 from dcpg.render_utils import render_starting_states
 
@@ -39,18 +39,6 @@ def main(config):
     if not config["debug"]:
         os.makedirs(config["output_dir"], exist_ok=True)
         os.makedirs(config["save_dir"], exist_ok=True)
-
-    # Create logger
-    log_file = "-{}-{}-s{}".format(
-        config["env_name"], config["exp_name"], config["seed"]
-    )
-    if config["debug"]:
-        log_file += "-debug"
-    logger.configure(
-        dir=config["log_dir"], format_strs=["csv", "wandb"], log_suffix=log_file,
-        project_name=config['project_name'], model_name=config['env_name'] + " - " + config['model_name'], wandb_dir=config['wandb_dir'], args=config,
-    )
-    print("\nLog File:", log_file)
 
     # Create environments
     envs = make_envs(
@@ -81,26 +69,53 @@ def main(config):
     rollouts.to(device)
 
     # Create state buffer
-    if config["use_rnd"]:
-        config['rnd_embed_dim'] = 512
-        config['rnd_kwargs'] = dict(activation_fn = torch.nn.ReLU, net_arch=[1024], learning_rate=0.0001)
-        config['rnd_flatten_input'] = True
-        config['rnd_use_resnet'] = True
-        config['rnd_normalize_images'] = False
-        config['rnd_normalize_output'] = False
+    if config["buffer_type"] == "FIFO":
+        if config["use_rnd"]:
+            rnd_config = dict()
+            rnd_config['rnd_embed_dim'] = 512
+            rnd_config['rnd_kwargs'] = dict(activation_fn = torch.nn.ReLU, net_arch=[1024], learning_rate=0.0001)
+            rnd_config['rnd_flatten_input'] = True
+            rnd_config['rnd_use_resnet'] = True
+            rnd_config['rnd_normalize_images'] = False
+            rnd_config['rnd_normalize_output'] = False
+            config["rnd_config"] = rnd_config
 
-        state_buffer = RNDFIFOStateBuffer(
-            config, config["state_buffer_size"], device, obs_space, action_space, rnd_epoch=config["rnd_epoch"],
-        )
-    else:
-        state_buffer = FIFOStateBuffer(
-            config["state_buffer_size"], device, obs_space,
+            state_buffer = RNDFIFOStateBuffer(
+                config["state_buffer_size"], device, obs_space, action_space, rnd_config, rnd_epoch=config["rnd_epoch"],
+            )
+        else:
+            state_buffer = FIFOStateBuffer(
+                config["state_buffer_size"], device, obs_space,
+            )
+    elif config["buffer_type"] == "RND":
+        rnd_config = dict()
+        rnd_config['rnd_embed_dim'] = 512
+        rnd_config['rnd_kwargs'] = dict(activation_fn = torch.nn.ReLU, net_arch=[1024], learning_rate=0.0001)
+        rnd_config['rnd_flatten_input'] = True
+        rnd_config['rnd_use_resnet'] = True
+        rnd_config['rnd_normalize_images'] = False
+        rnd_config['rnd_normalize_output'] = False
+        config["rnd_config"] = rnd_config
+        state_buffer = RNDStateBuffer(
+            config["state_buffer_size"], device, obs_space, action_space, rnd_config, epochs=config["rnd_epoch"], add_batch_size=config["add_batch_size"],
         )
 
     # Create agent
     agent_class = getattr(sys.modules[__name__], config["agent_class"])
     agent_params = config["agent_params"]
     agent = agent_class(actor_critic, **agent_params, device=device)
+
+    # Create logger
+    log_file = "-{}-{}-s{}".format(
+        config["env_name"], config["exp_name"], config["seed"]
+    )
+    if config["debug"]:
+        log_file += "-debug"
+    logger.configure(
+        dir=config["log_dir"], format_strs=["csv", "wandb"], log_suffix=log_file,
+        project_name=config['project_name'], model_name=config['env_name'] + " - " + config['model_name'], wandb_dir=config['wandb_dir'], args=config,
+    )
+    print("\nLog File:", log_file)
 
     # Initialize environments
     obs = envs.reset()
