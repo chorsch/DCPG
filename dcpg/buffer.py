@@ -78,10 +78,12 @@ class FIFOStateBuffer:
     def compute_logging_metrics(self):
         num_states_in_buffer = self.size if self.full else self.pos
         fraction_of_unique_states = len(set(self.states[:num_states_in_buffer])) / num_states_in_buffer
+        obs_hashes = [hash(o.numpy().data.tobytes()) for o in self.obs[:num_states_in_buffer]]
+        fraction_of_unique_obs = len(set(obs_hashes)) / num_states_in_buffer
         level_distribution = np.bincount(self.levels[:num_states_in_buffer] - self.start_level, minlength=self.num_levels)
         fraction_of_level_coverage = np.count_nonzero(level_distribution) / self.num_levels
 
-        return fraction_of_unique_states, fraction_of_level_coverage, (self.levels[:num_states_in_buffer] - self.start_level)
+        return fraction_of_unique_states, fraction_of_unique_obs, fraction_of_level_coverage, (self.levels[:num_states_in_buffer] - self.start_level)
 
 
 class RNDStateBuffer(FIFOStateBuffer):
