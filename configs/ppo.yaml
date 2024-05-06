@@ -5,8 +5,8 @@ save_dir: /models
 wandb_dir: /wandb
 
 # Weights & Biases
-project_name: "DCPG"
-model_name: "PPO"
+project_name: "phasic-exploration--dcpg"
+model_name: "PPO - Teleport RND - Warmup"
 
 # Experiment
 log_interval: 10
@@ -31,6 +31,18 @@ gae_lambda: 0.95
 actor_critic_class: PPOModel
 actor_critic_params:
   shared: True
+
+# State buffer
+state_buffer_size: 16_448 
+# state_buffer_size: 500_000 
+prob_to_teleport: .8
+teleport_warmup: 2_000_000
+# teleport_warmup: 0
+use_rnd: True
+rnd_epoch: 1
+# rnd_epoch: 0.025
+buffer_type: "RND"
+add_batch_size: 32 
 
 # Agent
 agent_class: PPO

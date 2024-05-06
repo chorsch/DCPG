@@ -140,7 +140,10 @@ def main(config):
         actor_critic.train()
 
         # Sample episode
-        sample_episodes(envs, rollouts, state_buffer, actor_critic, config["prob_to_teleport"])
+        prob_to_teleport = 0
+        if j*num_env_steps_epoch > config["teleport_warmup"]:
+            prob_to_teleport = config["prob_to_teleport"]
+        sample_episodes(envs, rollouts, state_buffer, actor_critic, prob_to_teleport)
 
         # Add states to the state buffer
         state_buffer.add(rollouts["obs"], rollouts["states"], rollouts["levels"])
@@ -169,8 +172,9 @@ def main(config):
                 render_starting_states(state_buffer)
 
             # Compute state buffer logging metrics
-            fraction_of_unique_states, fraction_of_level_coverage, levels = state_buffer.compute_logging_metrics()
+            fraction_of_unique_states, fraction_of_unique_obs, fraction_of_level_coverage, levels = state_buffer.compute_logging_metrics()
             logger.logkv("buffer/fraction_of_unique_states", fraction_of_unique_states)
+            logger.logkv("buffer/fraction_of_unique_obs", fraction_of_unique_obs)
             logger.logkv("buffer/fracion_of_level_coverage", fraction_of_level_coverage)
             wandb.log({"buffer/level_distribution": wandb.Histogram(np_histogram=np.histogram(levels, bins=config["num_levels"], density=True))})
 

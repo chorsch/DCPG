@@ -6,7 +6,7 @@ wandb_dir: /wandb
 
 # Weights & Biases
 project_name: "phasic-exploration--dcpg"
-model_name: "DCPG - Teleport RND"
+model_name: "DCPG - Teleport RND smaller"
 
 # Experiment
 log_interval: 10
@@ -33,12 +33,14 @@ actor_critic_params:
   shared: True
 
 # State buffer
-state_buffer_size: 16_448 # 64*257
+# state_buffer_size: 16_448 # 64*257
+state_buffer_size: 4112 # 16*257
 prob_to_teleport: .8
+teleport_warmup: 1_000_000
 use_rnd: True
-rnd_epoch: 1
+rnd_epoch: 2
 buffer_type: "RND"
-add_batch_size: 64 
+add_batch_size: 32 
 
 # Agent
 agent_class: DCPG
