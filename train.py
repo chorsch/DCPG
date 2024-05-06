@@ -8,6 +8,7 @@ import yaml
 import numpy as np
 import torch
 import dill
+import wandb
 
 from baselines import logger
 
@@ -81,11 +82,11 @@ def main(config):
             config["rnd_config"] = rnd_config
 
             state_buffer = RNDFIFOStateBuffer(
-                config["state_buffer_size"], device, obs_space, action_space, rnd_config, rnd_epoch=config["rnd_epoch"],
+                config["state_buffer_size"], device, obs_space, action_space, config['num_levels'], config['start_level'], rnd_config, rnd_epoch=config["rnd_epoch"],
             )
         else:
             state_buffer = FIFOStateBuffer(
-                config["state_buffer_size"], device, obs_space,
+                config["state_buffer_size"], device, obs_space, config['num_levels'], config['start_level'],
             )
     elif config["buffer_type"] == "RND":
         rnd_config = dict()
@@ -97,7 +98,7 @@ def main(config):
         rnd_config['rnd_normalize_output'] = False
         config["rnd_config"] = rnd_config
         state_buffer = RNDStateBuffer(
-            config["state_buffer_size"], device, obs_space, action_space, rnd_config, epochs=config["rnd_epoch"], add_batch_size=config["add_batch_size"],
+            config["state_buffer_size"], device, obs_space, action_space, config['num_levels'], config['start_level'], rnd_config, epochs=config["rnd_epoch"], add_batch_size=config["add_batch_size"],
         )
 
     # Create agent
@@ -142,7 +143,7 @@ def main(config):
         sample_episodes(envs, rollouts, state_buffer, actor_critic, config["prob_to_teleport"])
 
         # Add states to the state buffer
-        state_buffer.add(rollouts["obs"], rollouts["states"])
+        state_buffer.add(rollouts["obs"], rollouts["states"], rollouts["levels"])
 
         # Compute return
         with torch.no_grad():
@@ -166,6 +167,12 @@ def main(config):
             # Render a sample of states from the state buffer
             if (j // config["log_interval"]) % 10 == 0:
                 render_starting_states(state_buffer)
+
+            # Compute state buffer logging metrics
+            fraction_of_unique_states, fraction_of_level_coverage, levels = state_buffer.compute_logging_metrics()
+            logger.logkv("buffer/fraction_of_unique_states", fraction_of_unique_states)
+            logger.logkv("buffer/fracion_of_level_coverage", fraction_of_level_coverage)
+            wandb.log({"buffer/level_distribution": wandb.Histogram(np_histogram=np.histogram(levels, bins=config["num_levels"], density=True))})
 
             # Train statistics
             total_num_steps = (j + 1) * config["num_processes"] * config["num_steps"]
@@ -329,15 +336,18 @@ if __name__ == "__main__":
 
     # Load config
     if DEBUG:
-        config_file = open("configs/{}.yaml".format('dcpg'), "r")   
+        # config_file = open("configs/{}.yaml".format('dcpg'), "r")   
+        config_file = open("configs/{}.yaml".format('ppo'), "r")  
     else:
-        config_file = open("configs/{}.yaml".format(args.exp_name), "r")    
+        # config_file = open("configs/{}.yaml".format(args.exp_name), "r")    
+        config_file = open(args.config, "r")  
     config = yaml.load(config_file, Loader=yaml.FullLoader)
 
     # Update config
     if DEBUG:
-        config["exp_name"] = 'dcpg'
-        config["env_name"] = 'bigfish'
+        # config["exp_name"] = 'dcpg'
+        config["exp_name"] = 'ppo'
+        config["env_name"] = 'maze'
         config["seed"] = 1
         config["debug"] = False
         # config["project_name"] = "debugging"
