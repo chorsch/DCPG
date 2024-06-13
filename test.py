@@ -3,7 +3,13 @@ import torch
 import imageio
 import wandb
 
-from dcpg.envs import make_envs
+from illustrative_env import IllustrativeCMDP, VecPytorchIllustrative
+import gym3
+
+from baselines.common.vec_env import (
+    VecMonitor,
+    VecNormalize,
+)
 
 def evaluate(config, actor_critic, device, test_envs=True, norm_infos=None, rendering=False, render_filename=""):
     # Set actor-critic to evaluation mode
@@ -11,25 +17,32 @@ def evaluate(config, actor_critic, device, test_envs=True, norm_infos=None, rend
 
     # Create environments
     if test_envs:
-        envs = make_envs(
-            num_envs=config["num_eval_episodes"],
-            env_name=config["env_name"],
-            num_levels=0,
-            start_level=0,
-            distribution_mode=config["distribution_mode"],
-            normalize_reward=False,
-            device=device,
+        envs = gym3.ToBaselinesVecEnv(
+            gym3.vectorize_gym(
+                config["num_eval_episodes"], 
+                env_fn=IllustrativeCMDP, 
+                # env_kwargs={"arm_length": 2, "tasks": [((0,0,125), 'left'), ((0,125,50), 'right'), ((0,125,0), 'top'), ((0,50,125), 'bottom')]}, 
+                env_kwargs={"arm_length": 2, "tasks": [((255,255,255), 'left'), ((255,255,255), 'right'), ((255,255,255), 'top'), ((255,255,255), 'bottom')]}, 
+                use_subproc=False, 
+                seed=config["seed"]
+                )
         )
+        envs = VecMonitor(envs, filename=None, keep_buf=100)
+        envs = VecNormalize(envs, ob=False, ret=False)
+        envs = VecPytorchIllustrative(envs, device)
     else:
-        envs = make_envs(
-            num_envs=config["num_eval_episodes"],
-            env_name=config["env_name"],
-            num_levels=config["num_levels"],
-            start_level=config["start_level"],
-            distribution_mode=config["distribution_mode"],
-            normalize_reward=False,
-            device=device,
+        envs = gym3.ToBaselinesVecEnv(
+            gym3.vectorize_gym(
+                config["num_eval_episodes"], 
+                env_fn=IllustrativeCMDP, 
+                env_kwargs={"arm_length": 2, "tasks": [((255,0,0), 'left'), ((0,255,0), 'right'), ((0,0,255), 'top'), ((255,0,255), 'bottom')]}, 
+                use_subproc=False, 
+                seed=config["seed"]
+                )
         )
+        envs = VecMonitor(envs, filename=None, keep_buf=100)
+        envs = VecNormalize(envs, ob=False, ret=False)
+        envs = VecPytorchIllustrative(envs, device)
 
     # Initialize environments
     obs = envs.reset()
@@ -66,7 +79,7 @@ def evaluate(config, actor_critic, device, test_envs=True, norm_infos=None, rend
     while not torch.all(finished):
         # Sample action
         with torch.no_grad():
-            action, *_ = actor_critic.act(obs)
+            action, *_ = actor_critic.act(obs, deterministic=True)
 
         if rendering and step < 200:
             # render the first 200 steps

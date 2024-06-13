@@ -1,31 +1,37 @@
 # Directory
-log_dir: logs
-output_dir: outputs
-save_dir: models
+log_dir: /logs
+output_dir: /outputs
+save_dir: /models
+wandb_dir: /wandb
+
+# Weights & Biases
+project_name: "phasic-exploration--dcpg"
+# model_name: "PPO + Explore-GO"
+model_name: "PPO"
 
 # Experiment
 log_interval: 10
-num_eval_episodes: 100
+num_eval_episodes: 4
 
 # Environment
-distribution_mode: easy
-num_levels: 200
-start_level: 0
-num_env_steps: 2.5e+7
-normalize_reward: True
+num_env_steps: 5.e+4
 
 # Rollout
-num_processes: 64
-num_steps: 256
+num_processes: 4
+num_steps: 10
 
 # Policy gradient
-gamma: 0.999
+gamma: 0.9
 gae_lambda: 0.95
 
 # Actor-critic
-actor_critic_class: PPOModel
+actor_critic_class: IllustrativeModel
 actor_critic_params:
-  shared: True
+  shared: False
+
+# Pure Exploration
+# num_pure_expl_steps: 4
+num_pure_expl_steps: 0
 
 # Agent
 agent_class: PPO
@@ -36,6 +42,6 @@ agent_params:
   num_mini_batch: 8
   value_loss_coef: 0.5
   entropy_coef: 0.01
-  lr: 5.0e-4
+  lr: 1.0e-4
   eps: 1.0e-5
   max_grad_norm: 0.5

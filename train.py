@@ -15,8 +15,15 @@ from dcpg.envs import make_envs
 from dcpg.models import *
 from dcpg.sample_utils import sample_episodes
 from dcpg.storages import RolloutStorage
-from dcpg.rnd import RandomNetworkDistillationState, RandomNetworkDistillationStateAction
-from test import evaluate
+from test_illustrative import evaluate
+
+from illustrative_env import IllustrativeCMDP, VecPytorchIllustrative
+import gym3
+
+from baselines.common.vec_env import (
+    VecMonitor,
+    VecNormalize,
+)
 
 DEBUG = False
 
@@ -50,20 +57,23 @@ def main(config):
     # )
     logger.configure(
         dir=config["log_dir"], format_strs=["csv", "wandb"], log_suffix=log_file,
-        project_name=config['project_name'], model_name=config['env_name'] + " - " + config['model_name'], args=config,
+        project_name=config['project_name'], model_name=config['env_name'] + " - " + config['model_name'], wandb_dir=config['wandb_dir'], args=config,
     )
     print("\nLog File:", log_file)
 
     # Create environments
-    envs = make_envs(
-        num_envs=config["num_processes"],
-        env_name=config["env_name"],
-        num_levels=config["num_levels"],
-        start_level=config["start_level"],
-        distribution_mode=config["distribution_mode"],
-        normalize_reward=config["normalize_reward"],
-        device=device,
+    envs = gym3.ToBaselinesVecEnv(
+        gym3.vectorize_gym(
+            config["num_processes"], 
+            env_fn=IllustrativeCMDP, 
+            env_kwargs={"arm_length": 2, "tasks": [((255,0,0), 'left'), ((0,255,0), 'right'), ((0,0,255), 'top'), ((255,0,255), 'bottom')]}, 
+            use_subproc=False, 
+            seed=config["seed"]
+            )
     )
+    envs = VecMonitor(envs, filename=None, keep_buf=100)
+    envs = VecNormalize(envs, ob=False, ret=True)
+    envs = VecPytorchIllustrative(envs, device)
     obs_space = envs.observation_space
     action_space = envs.action_space
 
@@ -76,71 +86,21 @@ def main(config):
     actor_critic.to(device)
     print("\nActor-Critic Network:", actor_critic)
 
-    # Create pure exploration actor-critic
-    pure_actor_critic = actor_critic_class(
-        obs_space.shape, action_space.n, **actor_critic_params
-    )
-    pure_actor_critic.to(device)
-    print("\nPure Exploration Actor-Critic Network:", pure_actor_critic)
-
     # Create rollout storage
     rollouts = RolloutStorage(
         config["num_steps"], config["num_processes"], obs_space.shape, action_space
     )
     rollouts.to(device)
 
-    # Create pure exploration rollout storage
-    pure_rollouts = RolloutStorage(
-        config["num_steps"], config["num_processes"], obs_space.shape, action_space
-    )
-    pure_rollouts.to(device)
-
     # Create agent
     agent_class = getattr(sys.modules[__name__], config["agent_class"])
     agent_params = config["agent_params"]
     agent = agent_class(actor_critic, **agent_params, device=device)
 
-    # Create pure exploration agent
-    pure_agent = agent_class(pure_actor_critic, **agent_params, device=device)
-
-    # Create Random Network Distillation
-    config['rnd_embed_dim'] = 512
-    config['rnd_kwargs'] = dict(activation_fn = torch.nn.ReLU, net_arch=[1024], learning_rate=0.0001)
-    config['rnd_flatten_input'] = True
-    config['rnd_use_resnet'] = True
-    config['rnd_normalize_images'] = False
-    config['rnd_normalize_output'] = True
-    config['rnd_next_state'] = True
-
-    if config['rnd_next_state']:
-        rnd = RandomNetworkDistillationState(
-            envs.action_space,
-            envs.observation_space,
-            config['rnd_embed_dim'],
-            config['rnd_kwargs'],
-            device=device,
-            flatten_input=config['rnd_flatten_input'],
-            use_resnet=config['rnd_use_resnet'],
-            normalize_images=config['rnd_normalize_images'],
-            normalize_output=config['rnd_normalize_output'],
-            )
-    else:
-        rnd = RandomNetworkDistillationStateAction(
-            envs.action_space,
-            envs.observation_space,
-            config['rnd_embed_dim'],
-            config['rnd_kwargs'],
-            device=device,
-            flatten_input=config['rnd_flatten_input'],
-            use_resnet=config['rnd_use_resnet'],
-            normalize_images=config['rnd_normalize_images'],
-            normalize_output=config['rnd_normalize_output'],
-            )
-
     # Initialize environments
     obs = envs.reset()
     *_, infos = envs.step_wait()
-    levels = torch.LongTensor([info["level_seed"] for info in infos]).to(device)
+    levels = torch.LongTensor([0 for info in infos]).to(device)
 
     # Train actor-critic
     num_env_steps_epoch = config["num_steps"] * config["num_processes"]
@@ -159,28 +119,18 @@ def main(config):
 
         # Set actor-critic to train mode
         actor_critic.train()
-        pure_actor_critic.train()
 
         # Sample episode
-        normalise = False
-        if j < 10:
-            # normalise RND on the data of the first 10 rollouts
-            normalise = True
         _, obs, levels, new_normal_steps = sample_episodes(
             envs, 
             rollouts, 
-            pure_rollouts, 
             obs, 
             levels, 
             pure_expl_steps_per_env, 
             episode_steps, 
             actor_critic, 
-            pure_actor_critic, 
             num_pure_expl_steps, 
             config['num_processes'], 
-            rnd, 
-            config['rnd_next_state'], 
-            normalise
         )
         num_normal_steps += new_normal_steps
 
@@ -188,16 +138,11 @@ def main(config):
         rollouts.compute_returns(actor_critic, config["gamma"], config["gae_lambda"])
         rollouts.compute_advantages()
 
-        pure_rollouts.compute_returns(pure_actor_critic, config["gamma"], config["gae_lambda"])
-        pure_rollouts.compute_advantages()
-
         # Update actor-critic
         train_statistics = agent.update(rollouts)
-        pure_train_statistics = pure_agent.update(pure_rollouts)
 
         # Reset rollout storage
         rollouts.after_update()
-        pure_rollouts.after_update()
 
         # End training
         end = time.time()
@@ -220,8 +165,6 @@ def main(config):
             logger.logkv("train/time_per_epoch", time_per_epoch)
             for key, val in train_statistics.items():
                 logger.logkv("train/{}".format(key), val)
-            for key, val in pure_train_statistics.items():
-                logger.logkv("pure_train/{}".format(key), val)
 
             # Fetch reward normalizing variables
             norm_infos = envs.normalization_infos()
@@ -256,28 +199,6 @@ def main(config):
 
             for key, val in train_value_statistics.items():
                 logger.logkv("train/{}".format(key), val) 
-
-            # Evaluate pure actor-critic on train environments
-            rendering = False
-            if (j // config["log_interval"]) % 3 == 0:
-                # only render every third eval
-                rendering = config['render_pure_eval']
-            render_filename = os.path.join(config["output_dir"], f"pure_eval_{log_file}_{int(total_num_steps / 100_000)}.gif")
-            pure_train_eval_statistics, pure_train_value_statistics = evaluate(
-                config, pure_actor_critic, device, test_envs=False, norm_infos=norm_infos, rendering=rendering, render_filename=render_filename,
-            )
-            pure_train_episode_rewards = pure_train_eval_statistics["episode_rewards"]
-            pure_train_episode_steps = pure_train_eval_statistics["episode_steps"]
-
-            logger.logkv("pure_train/mean_episode_reward", np.mean(pure_train_episode_rewards))
-            logger.logkv("pure_train/med_episode_reward", np.median(pure_train_episode_rewards))
-            logger.logkv("pure_train/std_episode_reward", np.std(pure_train_episode_rewards))
-            logger.logkv("pure_train/mean_episode_step", np.mean(pure_train_episode_steps))
-            logger.logkv("pure_train/med_episode_step", np.median(pure_train_episode_steps))
-            logger.logkv("pure_train/std_episode_step", np.std(pure_train_episode_steps))
-
-            for key, val in pure_train_value_statistics.items():
-                logger.logkv("pure_train/{}".format(key), val) 
 
             # Evaluate actor-critic on test environments
             test_eval_statistics, *_ = evaluate(
@@ -388,7 +309,7 @@ if __name__ == "__main__":
 
     # Load config
     if DEBUG:
-        config_file = open("configs/{}.yaml".format('dcpg'), "r")     
+        config_file = open("configs/{}.yaml".format('ppo_illustrative'), "r")     
     else:
         # config_file = open("configs/{}.yaml".format(args.exp_name), "r")    
         config_file = open(args.config, "r")   
@@ -396,19 +317,24 @@ if __name__ == "__main__":
 
     # Update config
     if DEBUG:
-        config["exp_name"] = 'dcpg'
-        config["env_name"] = 'bigfish'
+        config["exp_name"] = 'ppo'
+        config["env_name"] = 'Illustrative'
         config["seed"] = 1
         config["debug"] = False
-        config["project_name"] = "debugging"
+        # config["project_name"] = "debugging"
         config["log_dir"] = config["log_dir"][1:]
         config["output_dir"] = config["output_dir"][1:]
         config["save_dir"] = config["save_dir"][1:]
+        config["wandb_dir"] = config["wandb_dir"][1:]
     else:
         config["exp_name"] = args.exp_name
         config["env_name"] = args.env_name
         config["seed"] = args.seed
         config["debug"] = args.debug
+        config["log_dir"] = config["log_dir"][1:]
+        config["output_dir"] = config["output_dir"][1:]
+        config["save_dir"] = config["save_dir"][1:]
+        config["wandb_dir"] = config["wandb_dir"][1:]
 
     # Run main
     main(config)
