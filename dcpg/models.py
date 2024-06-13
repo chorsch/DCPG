@@ -4,6 +4,7 @@ import torch
 from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
 from dcpg.distributions import Categorical, FixedCategorical
 from dcpg.utils import init
@@ -182,6 +183,46 @@ class ResNetEncoder(nn.Module):
         x = self.relu(x)
 
         return x
+    
+class FCEncoder(nn.Module):
+    """
+    Fully Connected Network Encoder
+    """
+
+    def __init__(
+        self,
+        obs_shape: Sequence[int],
+        feature_dim: int = 32,
+        hidden_dim: Sequence[int] = [128, 64],
+        widen_factor: int = 1,
+    ):
+        super().__init__()
+
+        # Layer
+        self.feature_dim = feature_dim
+
+        self.flatten = Flatten()
+
+        self.layers = []
+        in_dim = np.prod(obs_shape)
+        for dim in hidden_dim:
+            out_dim = widen_factor * dim
+            self.layers.append(nn.Linear(in_dim, out_dim))
+            self.layers.append(nn.ReLU())
+            in_dim = out_dim
+
+        self.layers.append(nn.Linear(in_dim, feature_dim))
+        self.layers.append(nn.ReLU())
+        self.layers = nn.Sequential(*self.layers)
+
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = self.flatten(x)
+
+        for layer in self.layers:
+            x = layer(x)
+
+        return x
 
 
 class PPOModel(nn.Module):
@@ -313,6 +354,34 @@ class PPOModel(nn.Module):
 
         return critic_head_outputs
 
+
+class IllustrativeModel(PPOModel):
+    """
+    PPO Actor-Critic Model for the Illustrative CMDP
+    """
+
+    def __init__(
+        self,
+        obs_shape: Sequence[int],
+        num_actions: int,
+        shared: bool = True,
+        **kwargs,
+    ):
+        super().__init__(obs_shape, num_actions, shared, **kwargs)
+
+        self.encoders = nn.ModuleDict()
+        for key in self.true_keys:
+            self.encoders[key] = FCEncoder(obs_shape, **kwargs)
+
+        # Actor
+        self.actor_feature_dim = self.encoders[self.actor_key].feature_dim
+        self.actor_heads = nn.ModuleDict()
+        self.actor_heads["dist"] = Categorical(self.actor_feature_dim, num_actions)
+
+        # Critic
+        self.critic_feature_dim = self.encoders[self.critic_key].feature_dim
+        self.critic_heads = nn.ModuleDict()
+        self.critic_heads["value"] = init_(nn.Linear(self.critic_feature_dim, 1))
 
 class PPGModel(PPOModel):
     """
