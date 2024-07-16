@@ -17,13 +17,14 @@ from dcpg.envs import make_envs
 from dcpg.models import *
 from dcpg.sample_utils import sample_episodes
 from dcpg.storages import RolloutStorage
-from dcpg.buffer import FIFOStateBuffer, RNDFIFOStateBuffer, RNDStateBuffer
+from dcpg.buffer import FIFOStateBuffer, RNDFIFOStateBuffer, RNDStateBuffer, LevelsRNDStateBuffer
 from test import evaluate
 from dcpg.render_utils import render_starting_states
 
-DEBUG = True
+DEBUG = False
 
 def main(config):
+    print('Starting!!')
     # Fix random seed
     random.seed(config["seed"])
     np.random.seed(config["seed"])
@@ -70,7 +71,20 @@ def main(config):
     rollouts.to(device)
 
     # Create state buffer
-    if config["buffer_type"] == "FIFO":
+    if config["buffer_type"] == "LevelRND":
+        rnd_config = dict()
+        rnd_config['rnd_embed_dim'] = 512
+        rnd_config['rnd_kwargs'] = dict(activation_fn = torch.nn.ReLU, net_arch=[1024], learning_rate=0.0001)
+        rnd_config['rnd_flatten_input'] = True
+        rnd_config['rnd_use_resnet'] = True
+        rnd_config['rnd_normalize_images'] = False
+        rnd_config['rnd_normalize_output'] = False
+        config["rnd_config"] = rnd_config
+        state_buffer = LevelsRNDStateBuffer(
+            config["state_buffer_size"], device, obs_space, action_space, config['num_levels'], config['start_level'], rnd_config, epochs=config["rnd_epoch"], add_batch_size=config["add_batch_size"],
+        )
+
+    elif config["buffer_type"] == "FIFO":
         if config["use_rnd"]:
             rnd_config = dict()
             rnd_config['rnd_embed_dim'] = 512
@@ -202,7 +216,7 @@ def main(config):
             )
             train_episode_rewards = train_eval_statistics["episode_rewards"]
             train_episode_steps = train_eval_statistics["episode_steps"]
-           
+
             print(
                 "Last {} training episodes: \n"
                 "mean/med/std reward {:.2f}/{:.2f}/{:.2f}, "
@@ -225,7 +239,7 @@ def main(config):
             logger.logkv("train/std_episode_step", np.std(train_episode_steps))
 
             for key, val in train_value_statistics.items():
-                logger.logkv("train/{}".format(key), val) 
+                logger.logkv("train/{}".format(key), val)
 
             # Evaluate actor-critic on test environments
             test_eval_statistics, *_ = evaluate(
@@ -326,6 +340,7 @@ def main(config):
 
 
 if __name__ == "__main__":
+    print('starting!!')
     if not DEBUG:
         # Argument
         parser = argparse.ArgumentParser()
@@ -340,11 +355,11 @@ if __name__ == "__main__":
 
     # Load config
     if DEBUG:
-        # config_file = open("configs/{}.yaml".format('dcpg'), "r")   
-        config_file = open("configs/{}.yaml".format('ppo'), "r")  
+        # config_file = open("configs/{}.yaml".format('dcpg'), "r")
+        config_file = open("configs/{}.yaml".format('ppo'), "r")
     else:
-        # config_file = open("configs/{}.yaml".format(args.exp_name), "r")    
-        config_file = open(args.config, "r")  
+        #config_file = open("configs/{}.yaml".format(args.exp_name), "r")
+        config_file = open(args.config, "r")
     config = yaml.load(config_file, Loader=yaml.FullLoader)
 
     # Update config
@@ -364,6 +379,12 @@ if __name__ == "__main__":
         config["env_name"] = args.env_name
         config["seed"] = args.seed
         config["debug"] = args.debug
+
+        # NEW STUFF!
+        config["log_dir"] = config["log_dir"][1:]
+        config["output_dir"] = config["output_dir"][1:]
+        config["save_dir"] = config["save_dir"][1:]
+        config["wandb_dir"] = config["wandb_dir"][1:]
 
     # Run main
     main(config)
