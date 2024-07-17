@@ -83,7 +83,6 @@ def main(config):
         state_buffer = LevelsRNDStateBuffer(
             config["state_buffer_size"], device, obs_space, action_space, config['num_levels'], config['start_level'], rnd_config, epochs=config["rnd_epoch"], add_batch_size=config["add_batch_size"],
         )
-
     elif config["buffer_type"] == "FIFO":
         if config["use_rnd"]:
             rnd_config = dict()

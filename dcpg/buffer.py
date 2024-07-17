@@ -308,27 +308,24 @@ class LevelsRNDStateBuffer(FIFOStateBuffer):
         super().__init__(buffer_size, device, obs_space, num_levels, start_level, store_unnormalised_obs=store_unnormalised_obs)
 
         # adjust buffer size per level
-        buffer_size_level = buffer_size//num_levels
-        buffer_size_level = buffer_size
-        self.level_rnds = [RNDStateBuffer(buffer_size_level, device, obs_space, action_space,
+        #self.buffer_size_level = buffer_size//num_levels
+        self.buffer_size_level = buffer_size
+        self.level_rnds = [RNDStateBuffer(self.buffer_size_level, device, obs_space, action_space,
                             num_levels, start_level, rnd_config, store_unnormalised_obs,
                             num_mini_batch, epochs, add_batch_size) for _ in range(num_levels)]
         self.used_levels = set([])
 
     def add(self, observations, states, levels):
-        # print(f'observations shape before: {observations.shape}')
-        # print(f'levels before: {levels}')
-        # print(f'levels shape: {levels.shape}')
         observations = observations.view(-1, *self.obs.size()[1:])
-        # print(f'observations shape after: {observations.shape}')
         states = np.concatenate(states).flatten()
         levels = levels.to(torch.int32).flatten().cpu().numpy()
-        # print(f'levels after: {levels}')
-        # print(f'levels after shape: {levels.shape}')
 
         cur_size = 0
         for level in range(max(levels)):
             indices = np.where(levels == level)
+            # For the smaller level buffers, there is sometimes more observations than can fit.
+            if len(indices) > self.buffer_size_level:
+                indices = np.random.choice(indices, self.buffer_size_level)
             obs_level = observations[indices]
             states_level = states[indices]
             levels_level = levels[indices]
@@ -337,7 +334,7 @@ class LevelsRNDStateBuffer(FIFOStateBuffer):
                 self.level_rnds[level].add(obs_level,
                                             states_level,
                                             torch.LongTensor(levels_level),
-                                            num_states=obs_level.shape[0])
+                                            num_states=len(indices))
             #update the current total buffer size
             cur_size += self.level_rnds[level].size if self.level_rnds[level].full else self.level_rnds[level].pos
         self.cur_size = cur_size
@@ -346,19 +343,14 @@ class LevelsRNDStateBuffer(FIFOStateBuffer):
         sample_max = self.size if self.full else self.cur_size
         # uniformly sample from the levels
         levels = np.random.choice(list(self.used_levels), size=batch_size)
-        # print('Levels selected: ', levels)
         obs_batch = []
         states_batch = []
         for level in levels:
-            # print(f'level: {level}, pos: {self.level_rnds[level].pos}')
             obs, state = self.level_rnds[level].sample(1)
             obs_batch.append(obs[0])
             states_batch.append(state[0])
 
         obs_batch = torch.stack(obs_batch, dim=0).to(self.device)
-
-        if self.store_unnormalised_obs:
-            obs_batch = obs_batch.to(torch.float32) / 255.
 
         return obs_batch, states_batch
 
